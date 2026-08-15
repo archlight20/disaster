@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import { localLLMEngine } from './realLocalLLM';
 import type { RealLLMResult } from './realLocalLLM';
+import { Plus, Mic, ArrowUp, X, Paperclip } from 'lucide-react';
+import { VoiceWaveformInput } from './VoiceWaveformInput';
 
 interface SyncItem {
   event_id: string;
@@ -25,15 +27,22 @@ interface ChatMessage {
   timestamp: string;
   intent?: RealLLMResult;
   isPending?: boolean;
+  audioUrl?: string;
 }
 
 const UNIT_ID = 'unit-17';
 const SERVER = 'http://localhost:4000';
 const STORAGE_KEY = 'disaster_field_queue_v3';
 
-export default function App() {
+interface AppProps {
+  onVoiceInput?: () => void;
+}
+
+export default function App({ onVoiceInput }: AppProps = {}) {
   const [isOnline, setIsOnline] = useState(true);
   const [input, setInput] = useState('');
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [isVoiceMode, setIsVoiceMode] = useState<boolean>(false);
   const [llmStatus, setLlmStatus] = useState<string>('Initializing Local Model...');
   const [llmProgress, setLlmProgress] = useState<number>(0);
   const [isRealLLMActive, setIsRealLLMActive] = useState<boolean>(false);
@@ -55,6 +64,7 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [activeTab, setActiveTab] = useState<'CHAT' | 'QUEUE' | 'DEBUG'>('CHAT');
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(queue));
@@ -73,16 +83,95 @@ export default function App() {
     });
   }, []);
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files);
+      setAttachedFiles((prev) => [...prev, ...newFiles]);
+    }
+    if (e.target) e.target.value = '';
+  };
 
-    const userMsg: ChatMessage = { role: 'user', content: input, timestamp: new Date().toISOString() };
+  const removeFile = (indexToRemove: number) => {
+    setAttachedFiles((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  const handleVoiceInput = () => {
+    setIsVoiceMode(true);
+    if (onVoiceInput) {
+      onVoiceInput();
+    }
+  };
+
+  const handleVoiceConfirm = async (data: any) => {
+    setIsVoiceMode(false);
+    const voiceText = data.text || 'Voice note recorded.';
+    const durationStr = data.durationSeconds ? ` (${data.durationSeconds}s)` : '';
+
+    const userMsg: ChatMessage = {
+      role: 'user',
+      content: `🎙 Voice Recording${durationStr}: "${voiceText}"`,
+      timestamp: new Date().toISOString(),
+      audioUrl: data.audioUrl,
+    };
     const thinking: ChatMessage = { role: 'ai', content: '… [Local WASM LLM Inferencing]', timestamp: new Date().toISOString(), isPending: true };
 
     setChat((c) => [...c, userMsg, thinking]);
-    const currentInput = input;
+
+    // Perform Local LLM Inference
+    const result = await localLLMEngine.parse(voiceText);
+
+    const stateBadge = `**${result.new_state}**`;
+    const confPct = `${(result.confidence * 100).toFixed(0)}%`;
+    let aiContent =
+      `🤖 **Local LLM Output** *(${result.is_real_llm_inference ? 'Local ONNX WASM Engine' : 'Local Deterministic Fallback'} — ${result.inference_time_ms}ms)*\n\n` +
+      `• **Intent:** \`${result.intent}\`\n` +
+      `• **Target Entity:** \`${result.entity_id}\`\n` +
+      `• **New State:** ${stateBadge}\n` +
+      `• **Confidence:** ${confPct}\n\n`;
+
+    if (result.followup_question) {
+      aiContent += `💬 ${result.followup_question}\n\n`;
+    }
+    aiContent += `> Review extracted operation below and commit to local queue.`;
+
+    const aiMsg: ChatMessage = {
+      role: 'ai',
+      content: aiContent,
+      timestamp: new Date().toISOString(),
+      intent: result,
+    };
+
+    setChat((c) => c.filter((m) => !m.isPending).concat(aiMsg));
+    setPendingIntent(result);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (input.trim() || attachedFiles.length > 0) {
+        const form = e.currentTarget.closest('form');
+        if (form) form.requestSubmit();
+      }
+    }
+  };
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() && attachedFiles.length === 0) return;
+
+    let messageContent = input.trim();
+    if (attachedFiles.length > 0) {
+      const fileNames = attachedFiles.map((f) => `📎 ${f.name}`).join(', ');
+      messageContent = messageContent ? `${messageContent}\n[Attachments: ${fileNames}]` : `[Attachments: ${fileNames}]`;
+    }
+
+    const userMsg: ChatMessage = { role: 'user', content: messageContent, timestamp: new Date().toISOString() };
+    const thinking: ChatMessage = { role: 'ai', content: '… [Local WASM LLM Inferencing]', timestamp: new Date().toISOString(), isPending: true };
+
+    setChat((c) => [...c, userMsg, thinking]);
+    const currentInput = messageContent;
     setInput('');
+    setAttachedFiles([]);
 
     // Perform Local LLM Inference
     const result = await localLLMEngine.parse(currentInput);
@@ -223,6 +312,11 @@ export default function App() {
                 <div key={i} className={`chat-bubble ${msg.role === 'user' ? 'bubble-user' : 'bubble-ai'} ${msg.isPending ? 'bubble-pending' : ''}`}>
                   <div className="bubble-role">{msg.role === 'user' ? '👤 Responder' : '🤖 Local AI Engine'}</div>
                   <div className="bubble-content">{msg.content}</div>
+                  {msg.audioUrl && (
+                    <div className="bubble-audio-player">
+                      <audio src={msg.audioUrl} controls />
+                    </div>
+                  )}
                   <div className="bubble-time">{new Date(msg.timestamp).toLocaleTimeString()}</div>
                 </div>
               ))}
@@ -251,16 +345,86 @@ export default function App() {
               <div ref={chatEndRef} />
             </div>
 
-            <form className="chat-input-bar" onSubmit={handleSend}>
-              <textarea
-                className="chat-textarea"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder='Type operational observation e.g. "Bridge B12 is damaged. Water is rising rapidly."'
-                rows={2}
-              />
-              <button type="submit" className="btn-send" disabled={!input.trim()}>Send</button>
-            </form>
+            {isVoiceMode ? (
+              <div className="chat-input-bar">
+                <VoiceWaveformInput
+                  onConfirm={handleVoiceConfirm}
+                  onCancel={() => setIsVoiceMode(false)}
+                />
+              </div>
+            ) : (
+              <form className="chat-input-bar" onSubmit={handleSend}>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  style={{ display: 'none' }}
+                  multiple
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
+
+                {attachedFiles.length > 0 && (
+                  <div className="attached-files-row">
+                    {attachedFiles.map((file, idx) => (
+                      <div key={idx} className="file-chip">
+                        <Paperclip size={13} className="file-chip-icon" />
+                        <span className="file-chip-name">{file.name}</span>
+                        <button
+                          type="button"
+                          className="file-chip-remove"
+                          onClick={() => removeFile(idx)}
+                          aria-label={`Remove file ${file.name}`}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="chat-input-container">
+                  <button
+                    type="button"
+                    className="chat-action-btn btn-attach"
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Attach files"
+                    aria-label="Attach files"
+                  >
+                    <Plus size={19} />
+                  </button>
+
+                  <textarea
+                    className="chat-textarea"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder='Type operational observation e.g. "Bridge B12 is damaged. Water is rising rapidly."'
+                    rows={1}
+                  />
+
+                  <button
+                    type="button"
+                    className="chat-action-btn btn-mic"
+                    onClick={handleVoiceInput}
+                    title="Start voice input"
+                    aria-label="Start voice input"
+                  >
+                    <Mic size={19} />
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="chat-send-btn"
+                    disabled={!input.trim() && attachedFiles.length === 0}
+                    title="Send message"
+                    aria-label="Send message"
+                  >
+                    <ArrowUp size={19} />
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         )}
 
