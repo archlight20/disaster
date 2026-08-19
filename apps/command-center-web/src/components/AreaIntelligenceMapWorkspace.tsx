@@ -1,7 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Entity, Conflict, AreaIntelligence } from '../App';
+import MapControls from './MapControls';
 
 interface MapProps {
   areaData: AreaIntelligence | null;
@@ -38,6 +39,7 @@ export default function AreaIntelligenceMapWorkspace({
 }: MapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInst = useRef<L.Map | null>(null);
+  const [mapState, setMapState] = useState<L.Map | null>(null);
   const layers = useRef<Record<string, L.LayerGroup>>({});
 
   // Initialize map
@@ -63,7 +65,8 @@ export default function AreaIntelligenceMapWorkspace({
     layers.current.markers   = L.layerGroup().addTo(map);
 
     mapInst.current = map;
-    return () => { map.remove(); mapInst.current = null; };
+    setMapState(map);
+    return () => { map.remove(); mapInst.current = null; setMapState(null); };
   }, []);
 
   // Fly to area on change
@@ -226,6 +229,7 @@ export default function AreaIntelligenceMapWorkspace({
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+      <MapControls map={mapState} />
       <style>{`
         .eoc-tooltip {
           background: rgba(6,14,28,0.95) !important;
@@ -239,6 +243,85 @@ export default function AreaIntelligenceMapWorkspace({
         }
         .eoc-tooltip::before { display: none !important; }
         .leaflet-container { background: #030712; }
+
+        .gmaps-controls-container {
+          position: absolute;
+          bottom: 24px;
+          right: 20px;
+          z-index: 650;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
+          user-select: none;
+        }
+        .gmaps-control-btn {
+          background: rgba(6, 14, 28, 0.92);
+          border: 1px solid rgba(0, 229, 255, 0.25);
+          color: #e8f1ff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          outline: none;
+          transition: all 0.15s ease-in-out;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+          backdrop-filter: blur(8px);
+        }
+        .gmaps-compass-btn {
+          width: 34px;
+          height: 34px;
+          border-radius: 50%;
+          padding: 0;
+        }
+        .gmaps-compass-btn:hover {
+          background: rgba(12, 28, 52, 0.95);
+          border-color: rgba(0, 229, 255, 0.6);
+          box-shadow: 0 0 12px rgba(0, 229, 255, 0.3);
+          transform: scale(1.05);
+        }
+        .gmaps-compass-btn:active {
+          transform: scale(0.95);
+        }
+        .gmaps-zoom-group {
+          display: flex;
+          flex-direction: column;
+          background: rgba(6, 14, 28, 0.92);
+          border: 1px solid rgba(0, 229, 255, 0.25);
+          border-radius: 6px;
+          overflow: hidden;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+          backdrop-filter: blur(8px);
+        }
+        .gmaps-zoom-group .gmaps-control-btn {
+          width: 34px;
+          height: 34px;
+          border: none;
+          border-radius: 0;
+          box-shadow: none;
+          background: transparent;
+        }
+        .gmaps-zoom-group .gmaps-control-btn:hover:not(:disabled) {
+          background: rgba(0, 229, 255, 0.15);
+          color: #00e5ff;
+        }
+        .gmaps-zoom-group .gmaps-control-btn:active:not(:disabled) {
+          background: rgba(0, 229, 255, 0.25);
+        }
+        .gmaps-zoom-group .gmaps-control-btn:disabled {
+          opacity: 0.35;
+          cursor: not-allowed;
+        }
+        .gmaps-control-divider {
+          height: 1px;
+          width: 22px;
+          background: rgba(0, 229, 255, 0.18);
+          margin: 0 auto;
+        }
+        .gmaps-control-btn:focus-visible {
+          border-color: #00e5ff;
+          box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.4);
+        }
       `}</style>
     </div>
   );
