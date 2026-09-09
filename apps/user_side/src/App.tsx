@@ -4,7 +4,7 @@ import { MapView } from './components/MapView';
 import { ChatView } from './components/ChatView';
 import { BottomFloatingDock, UserView } from './components/BottomFloatingDock';
 import { getActiveSignals, attemptOfflineSync } from './services/api';
-import { PhoneCall, ShieldCheck, HeartPulse, AlertCircle, ArrowLeft } from 'lucide-react';
+import { HelplineContactsView } from './components/HelplineContactsView';
 import './App.css';
 
 export function App() {
@@ -87,47 +87,7 @@ export function App() {
 
       {/* 4. Emergency Contacts View */}
       {currentView === 'HELP' && (
-        <div className="help-contacts-page">
-          <div className="help-top-bar">
-            <button type="button" className="btn-back-sos" onClick={() => setCurrentView('HOME')}>
-              <ArrowLeft size={20} />
-              <span>Back to SOS</span>
-            </button>
-            <div className="help-title">
-              <PhoneCall size={20} className="icon-cyan" />
-              <span>EMERGENCY HELPLINES</span>
-            </div>
-          </div>
-
-          <div className="contacts-list-container">
-            <div className="contact-card critical-contact">
-              <div className="contact-icon-box"><ShieldCheck size={28} /></div>
-              <div className="contact-info">
-                <h3>NATIONAL EMERGENCY RESPONSE</h3>
-                <span className="contact-number">📞 112</span>
-                <p>24/7 Universal Emergency & Ambulance Dispatch</p>
-              </div>
-            </div>
-
-            <div className="contact-card">
-              <div className="contact-icon-box icon-red"><HeartPulse size={28} /></div>
-              <div className="contact-info">
-                <h3>DISASTER RESPONSE FORCE (NDRF)</h3>
-                <span className="contact-number">📞 1078</span>
-                <p>Rescue boats, helicopter extraction & flood response</p>
-              </div>
-            </div>
-
-            <div className="contact-card">
-              <div className="contact-icon-box icon-blue"><PhoneCall size={28} /></div>
-              <div className="contact-info">
-                <h3>EOC SECTOR COMMAND CENTER</h3>
-                <span className="contact-number">📞 1800-425-001</span>
-                <p>Local Sector 4 Control Room Direct Radio Relay</p>
-              </div>
-            </div>
-          </div>
-        </div>
+        <HelplineContactsView onBack={() => setCurrentView('HOME')} />
       )}
 
       {/* FLOATING DOCK — Rendered ONLY on HOME or HELP views! Hidden on MAP and CHAT! */}
