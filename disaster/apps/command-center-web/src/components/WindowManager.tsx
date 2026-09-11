@@ -49,6 +49,7 @@ export default function WindowManager({
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
+      if (!win) return;
       if (isDragging) {
         const dx = e.clientX - dragStart.current.x;
         const dy = e.clientY - dragStart.current.y;
@@ -79,7 +80,7 @@ export default function WindowManager({
     };
   }, [isDragging, isResizing, win, onUpdate]);
 
-  if (!win.isOpen || win.isMinimized) return null;
+  if (!win || !win.isOpen || win.isMinimized) return null;
 
   const style: React.CSSProperties = win.isMaximized
     ? {

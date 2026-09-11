@@ -305,27 +305,70 @@ app.get('/api/uncertainty', (req, res) => {
 
 app.get('/api/alerts', (req, res) => {
   const alerts = deltasHistory
-    .filter(delta => delta.type === 'INCIDENT_REPORTED')
-    .map(delta => ({
-      id: delta.event_id,
-      title: delta.metadata?.title || `Incident reported at ${delta.location.address || 'unknown location'}`,
-      severity: delta.metadata?.severity || 'HIGH',
-      category: delta.metadata?.sub_type || 'INCIDENT',
-      description: delta.metadata?.details || 'Citizen incident report received.',
-      suggestedAction: 'Review location and dispatch the nearest available unit.',
-      affectedEntityId: delta.entity_id,
-      observedAt: delta.observed_at,
-      location: delta.location,
-      acknowledged: acknowledgedAlerts.has(delta.event_id),
-      sourceId: delta.source_id,
-    }))
+    .filter(delta => 
+      delta.type === 'INCIDENT_REPORTED' || 
+      delta.entity_type === 'INCIDENT' ||
+      delta.new_state === 'CRITICAL' ||
+      delta.new_state === 'DAMAGED' ||
+      delta.new_state === 'BLOCKED' ||
+      delta.new_state === 'OVERCROWDED' ||
+      Boolean(delta.metadata?.is_alert)
+    )
+    .map(delta => {
+      const isFieldUnit = Boolean(delta.source_id && delta.source_id.toLowerCase().startsWith('unit'));
+      const unitPrefix = isFieldUnit ? `[${delta.source_id.toUpperCase()}] ` : '';
+      
+      let title = delta.metadata?.title;
+      if (!title) {
+        if (delta.entity_type === 'INCIDENT' || delta.type === 'INCIDENT_REPORTED') {
+          title = `${unitPrefix}Incident Reported: ${delta.entity_id}`;
+        } else {
+          title = `${unitPrefix}${delta.entity_type || 'Asset'} ${delta.entity_id}: ${delta.new_state}`;
+        }
+      }
+
+      const severity = delta.metadata?.severity || (
+        delta.new_state === 'CRITICAL' ? 'CRITICAL' : 
+        (delta.new_state === 'DAMAGED' || delta.new_state === 'BLOCKED' ? 'HIGH' : 'MEDIUM')
+      );
+
+      const category = delta.metadata?.category || (isFieldUnit ? 'FIELD REPORT' : 'CITIZEN');
+
+      const locText = delta.location?.address || (delta.location ? `${delta.location.lat.toFixed(4)}, ${delta.location.lng.toFixed(4)}` : 'Sector 4');
+
+      const description = delta.metadata?.details || delta.metadata?.raw_text || (
+        isFieldUnit
+          ? `Field responder observation from ${delta.source_id}: ${delta.entity_id} (${delta.entity_type}) observed in state ${delta.new_state} at ${locText}.`
+          : `Citizen report: incident observed at ${locText}.`
+      );
+
+      const suggestedAction = delta.metadata?.suggested_action || (
+        severity === 'CRITICAL' || delta.new_state === 'DAMAGED'
+          ? 'Dispatch rapid tactical response unit. Recalculate emergency corridors.'
+          : 'Monitor local responder telemetry and verify status.'
+      );
+
+      return {
+        id: delta.event_id,
+        title,
+        severity,
+        category,
+        description,
+        suggestedAction,
+        affectedEntityId: delta.entity_id,
+        observedAt: delta.observed_at,
+        location: delta.location,
+        acknowledged: acknowledgedAlerts.has(delta.event_id),
+        sourceId: delta.source_id,
+      };
+    })
     .sort((a, b) => new Date(b.observedAt).getTime() - new Date(a.observedAt).getTime());
 
   res.json({ alerts });
 });
 
 app.post('/api/alerts/:id/acknowledge', (req, res) => {
-  const alert = deltasHistory.find(delta => delta.event_id === req.params.id && delta.type === 'INCIDENT_REPORTED');
+  const alert = deltasHistory.find(delta => delta.event_id === req.params.id);
   if (!alert) return res.status(404).json({ error: 'Alert not found' });
 
   acknowledgedAlerts.add(alert.event_id);

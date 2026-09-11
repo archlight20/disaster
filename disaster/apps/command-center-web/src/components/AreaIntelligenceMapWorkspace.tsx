@@ -3,13 +3,16 @@ import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Entity, Conflict, AreaIntelligence } from '../App';
 
+import { RouteDetail, LocationCoordinates } from '@disaster/protocol';
+
 interface MapProps {
   areaData: AreaIntelligence | null;
   entities: Entity[];
   conflicts: Conflict[];
+  routes?: RouteDetail[];
+  selectedRouteId?: number | null;
+  onSelectRoute?: (routeId: number) => void;
   activeLayers: {
-    no_contact?: boolean;
-    red_alert: boolean;
     infrastructure: boolean;
     water_sources: boolean;
     incidents: boolean;
@@ -18,135 +21,25 @@ interface MapProps {
     flood_exposure: boolean;
   };
   onSelectEntity: (e: Entity) => void;
-  onSelectIncident?: (inc: any) => void;
 }
 
 const TILE_URL = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
 
 const stateColor = (state: string) => {
-  if (!state) return '#38bdf8';
-  const s = state.toUpperCase();
-  if (s === 'OPERATIONAL' || s === 'OPEN' || s === 'SAFE' || s === 'ACTIVE') return '#10b981';
-  if (
-    s === 'BLOCKED' || s === 'DAMAGED' || s === 'CRITICAL' ||
-    s.includes('COLLAPSE') || s.includes('WASH') || s.includes('BREACH') ||
-    s.includes('SUBMERGE') || s.includes('INUNDAT') || s.includes('DANGER') ||
-    s.includes('FLOOD')
-  ) return '#ef4444';
-  if (s.includes('PARTIAL') || s.includes('WARN') || s.includes('RISK') || s.includes('STANDBY')) return '#f59e0b';
+  if (state === 'OPERATIONAL') return '#10b981';
+  if (state === 'BLOCKED' || state === 'DAMAGED') return '#ef4444';
   return '#38bdf8';
 };
 
 const typeIcon = (type: string) => {
-  const t = (type || '').toUpperCase();
-  if (t.includes('BRIDGE') || t.includes('FOOTBRIDGE')) return '🌉';
-  if (t.includes('ROAD') || t.includes('HIGHWAY')) return '🛣';
-  if (t.includes('EMBANK') || t.includes('DAM') || t.includes('DRAIN')) return '🛡';
-  if (t.includes('SHELTER')) return '🏠';
-  if (t.includes('HOSPITAL') || t.includes('CLINIC') || t.includes('MEDICAL')) return '🏥';
-  if (t.includes('GAUGE') || t.includes('RIVER') || t.includes('WATER')) return '🌊';
-  if (t.includes('URBAN') || t.includes('TOWN') || t.includes('CITY')) return '🏙';
-  if (t.includes('INCIDENT') || t.includes('FIRE')) return '⚠';
-  return '🏗';
+  const m: Record<string, string> = {
+    ROAD: '🛣', BRIDGE: '🌉', SHELTER: '🏠', HOSPITAL: '🏥', INCIDENT: '⚠',
+  };
+  return m[type] ?? '📍';
 };
 
-function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-function checkIsCloseToFlood(lat: number, lng: number, areaData: AreaIntelligence | null): boolean {
-  if (!areaData) return false;
-
-  for (const w of areaData.water_sources || []) {
-    if (w.location) {
-      const dist = getDistanceMeters(lat, lng, w.location.lat, w.location.lng);
-      if (dist <= (w.risk_radius_meters || 6000) + 3000) return true;
-    }
-    for (const fz of w.flood_zones || []) {
-      if (fz.location) {
-        const dist = getDistanceMeters(lat, lng, fz.location.lat, fz.location.lng);
-        if (dist <= (fz.radius_meters || 5000) + 2500) return true;
-      }
-    }
-    for (const p of w.path_coordinates || []) {
-      const dist = getDistanceMeters(lat, lng, p[0], p[1]);
-      if (dist <= (w.risk_radius_meters || 6000) + 2000) return true;
-    }
-  }
-
-  for (const raz of areaData.red_alert_zones || []) {
-    if (raz.location) {
-      const dist = getDistanceMeters(lat, lng, raz.location.lat, raz.location.lng);
-      if (dist <= (raz.radius_meters || 6000) + 2500) return true;
-    }
-  }
-
-  return false;
-}
-
-const DEFAULT_ASSAM_NO_CONTACT: Array<{
-  id: string;
-  name: string;
-  district?: string;
-  location: { lat: number; lng: number };
-  radius_meters?: number;
-  description?: string;
-  is_close_to_flood?: boolean;
-}> = [
-  {
-    id: 'nc-sivasagar',
-    name: 'SIVASAGAR',
-    district: 'Sivasagar',
-    location: { lat: 26.988447, lng: 94.621148 },
-    radius_meters: 4500,
-    description: 'Critical communication outage in Sivasagar sector.',
-  },
-  {
-    id: 'nc-gaurisagar',
-    name: 'GAURISAGAR',
-    district: 'Sivasagar',
-    location: { lat: 26.949460, lng: 94.535980 },
-    radius_meters: 4000,
-    description: 'Zero cellular signal reported across Gaurisagar sector.',
-  },
-  {
-    id: 'nc-nepalikhuti',
-    name: 'NEPALIKHUTI',
-    district: 'Sivasagar / Dibrugarh Belt',
-    location: { lat: 27.000000, lng: 94.500000 },
-    radius_meters: 4000,
-    description: 'Remote riverbank settlement with total comms blackout.',
-  },
-  {
-    id: 'nc-sonari',
-    name: 'SONARI / CHARAIDEO',
-    district: 'Charaideo',
-    location: { lat: 27.026694, lng: 95.021367 },
-    radius_meters: 4500,
-    description: 'Highland district outpost offline.',
-  },
-  {
-    id: 'nc-jorhat',
-    name: 'JORHAT',
-    district: 'Jorhat',
-    location: { lat: 26.750000, lng: 94.200000 },
-    radius_meters: 4500,
-    description: 'Jorhat outer zone telecommunication tower failure.',
-  },
-];
-
 export default function AreaIntelligenceMapWorkspace({
-  areaData, entities, conflicts, activeLayers, onSelectEntity, onSelectIncident,
+  areaData, entities, conflicts, routes, selectedRouteId, onSelectRoute, activeLayers, onSelectEntity,
 }: MapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInst = useRef<L.Map | null>(null);
@@ -168,14 +61,12 @@ export default function AreaIntelligenceMapWorkspace({
     // attribution minimal
     L.control.attribution({ prefix: false }).addTo(map);
 
-    layers.current.boundary   = L.layerGroup().addTo(map);
-    layers.current.no_contact = L.layerGroup().addTo(map);
-    layers.current.water      = L.layerGroup().addTo(map);
-    layers.current.flood      = L.layerGroup().addTo(map);
-    layers.current.red_alert  = L.layerGroup().addTo(map);
-    layers.current.uncertain  = L.layerGroup().addTo(map);
-    layers.current.markers    = L.layerGroup().addTo(map);
-    layers.current.routes     = L.layerGroup().addTo(map);
+    layers.current.boundary  = L.layerGroup().addTo(map);
+    layers.current.water     = L.layerGroup().addTo(map);
+    layers.current.flood     = L.layerGroup().addTo(map);
+    layers.current.uncertain = L.layerGroup().addTo(map);
+    layers.current.routes    = L.layerGroup().addTo(map);
+    layers.current.markers   = L.layerGroup().addTo(map);
 
     mapInst.current = map;
     return () => { map.remove(); mapInst.current = null; };
@@ -185,31 +76,16 @@ export default function AreaIntelligenceMapWorkspace({
   useEffect(() => {
     if (!mapInst.current || !areaData) return;
     const { center, boundary_polygon } = areaData.area;
-    const locations: [number, number][] = [
-      ...(boundary_polygon ?? []),
-      ...areaData.water_sources.map(w => [w.location.lat, w.location.lng] as [number, number]),
-      ...entities.map(e => [e.location.lat, e.location.lng] as [number, number]),
-    ].filter(loc => loc && typeof loc[0] === 'number' && typeof loc[1] === 'number' && !isNaN(loc[0]) && !isNaN(loc[1]));
+    mapInst.current.flyTo([center.lat, center.lng], 14, { duration: 1.4, easeLinearity: 0.2 });
 
-    if (locations.length > 1) {
-      mapInst.current.fitBounds(L.latLngBounds(locations), {
-        padding: [35, 35],
-        maxZoom: 13,
-        animate: true,
-        duration: 1.2,
-      });
-    } else {
-      mapInst.current.flyTo([center.lat, center.lng], 10, { duration: 1.2, easeLinearity: 0.2 });
-    }
-
-    layers.current.boundary?.clearLayers();
+    layers.current.boundary.clearLayers();
     if (boundary_polygon?.length) {
       L.polygon(boundary_polygon as [number, number][], {
         color: '#38bdf8', weight: 1.5, dashArray: '6 4',
         fillColor: '#38bdf8', fillOpacity: 0.04,
       }).addTo(layers.current.boundary);
     }
-  }, [areaData, entities]);
+  }, [areaData]);
 
   // Water + flood exposure
   useEffect(() => {
@@ -219,334 +95,25 @@ export default function AreaIntelligenceMapWorkspace({
 
     if (activeLayers.water_sources) {
       areaData.water_sources.forEach(w => {
-        if (w.path_coordinates && w.path_coordinates.length > 1) {
-          // River outer glow casing (sleek, thinner width)
-          const riverGlow = L.polyline(w.path_coordinates, {
-            color: '#0284c7',
-            weight: 4.5,
-            opacity: 0.35,
-            lineCap: 'round',
-            lineJoin: 'round',
-          });
-
-          // River vibrant core line (crisp, slim width)
-          const riverLine = L.polyline(w.path_coordinates, {
-            color: '#38bdf8',
-            weight: 2,
-            opacity: 0.95,
-            lineCap: 'round',
-            lineJoin: 'round',
-          });
-
-          const tooltipHtml = `
-            <div style="font-family:Inter,sans-serif;font-size:12px;padding:2px 0;">
-              <div style="font-weight:700;color:#38bdf8;display:flex;align-items:center;gap:5px;">
-                <span>🌊 ${w.name}</span>
-              </div>
-              <div style="font-size:10px;color:#94a3b8;margin-top:3px;">
-                River Basin &middot; Inundation Risk Buffer: ${w.risk_radius_meters}m
-              </div>
-            </div>
-          `;
-
-          riverLine.bindTooltip(tooltipHtml, { className: 'eoc-tooltip', sticky: true });
-          riverGlow.bindTooltip(tooltipHtml, { className: 'eoc-tooltip', sticky: true });
-
-          riverGlow.addTo(layers.current.water);
-          riverLine.addTo(layers.current.water);
-
-        } else if (w.location) {
-          L.circle([w.location.lat, w.location.lng], {
-            radius: 300, color: '#0284c7', weight: 2,
-            fillColor: '#0284c7', fillOpacity: 0.35,
-          })
-            .bindTooltip(`💧 ${w.name}`, { className: 'eoc-tooltip', permanent: false })
-            .addTo(layers.current.water);
-        }
+        L.circle([w.location.lat, w.location.lng], {
+          radius: 300, color: '#0284c7', weight: 2,
+          fillColor: '#0284c7', fillOpacity: 0.35,
+        })
+          .bindTooltip(`💧 ${w.name}`, { className: 'eoc-tooltip', permanent: false })
+          .addTo(layers.current.water);
       });
     }
 
-    // Flood exposure layer: Highlight affected areas with blue dotted circles
     if (activeLayers.flood_exposure) {
       areaData.water_sources.forEach(w => {
-        const zonesToRender = (w as any).flood_zones && (w as any).flood_zones.length > 0
-          ? (w as any).flood_zones
-          : [{ name: `${w.name} Inundation Zone`, location: w.location, radius_meters: w.risk_radius_meters || 5000 }];
-
-        zonesToRender.forEach((zone: any) => {
-          if (!zone.location || typeof zone.location.lat !== 'number' || typeof zone.location.lng !== 'number') return;
-
-          // Outer blue dotted / dashed circle
-          const outerCircle = L.circle([zone.location.lat, zone.location.lng], {
-            radius: zone.radius_meters || 5000,
-            color: '#38bdf8',
-            weight: 2,
-            dashArray: '5 6',
-            fillColor: '#0284c7',
-            fillOpacity: 0.16,
-          });
-
-          // Inner core surge dotted circle
-          const innerCircle = L.circle([zone.location.lat, zone.location.lng], {
-            radius: Math.floor((zone.radius_meters || 5000) * 0.45),
-            color: '#0ea5e9',
-            weight: 1.5,
-            dashArray: '3 4',
-            fillColor: '#38bdf8',
-            fillOpacity: 0.22,
-          });
-
-          const tooltipHtml = `
-            <div style="font-family:Inter,sans-serif;font-size:12px;padding:2px 0;">
-              <div style="font-weight:700;color:#38bdf8;display:flex;align-items:center;gap:5px;">
-                <span>🌊 Flood Exposure Risk Zone</span>
-              </div>
-              <div style="font-size:11px;color:#ffffff;font-weight:600;margin-top:2px;">
-                ${zone.name}
-              </div>
-              <div style="font-size:10px;color:#93c5fd;margin-top:2px;">
-                Dotted Perimeter Buffer: ${zone.radius_meters || 5000}m
-              </div>
-            </div>
-          `;
-
-          outerCircle.bindTooltip(tooltipHtml, { className: 'eoc-tooltip', direction: 'top', offset: [0, -6] });
-          innerCircle.bindTooltip(tooltipHtml, { className: 'eoc-tooltip', direction: 'top', offset: [0, -6] });
-
-          outerCircle.addTo(layers.current.flood);
-          innerCircle.addTo(layers.current.flood);
-        });
+        L.circle([w.location.lat, w.location.lng], {
+          radius: w.risk_radius_meters, color: '#38bdf8',
+          weight: 1.5, dashArray: '4 6',
+          fillColor: '#38bdf8', fillOpacity: 0.1,
+        }).addTo(layers.current.flood);
       });
     }
   }, [areaData, activeLayers.water_sources, activeLayers.flood_exposure]);
-
-  // No_Contact Layer: Render yellow dotted circles for isolated areas, and red dotted circles if close to flood exposure
-  useEffect(() => {
-    layers.current.no_contact?.clearLayers();
-    if (!areaData || !activeLayers.no_contact) return;
-
-    const noContactZones = (areaData.no_contact_zones && areaData.no_contact_zones.length > 0)
-      ? areaData.no_contact_zones
-      : (areaData.area.id === 'assam-demo' ? DEFAULT_ASSAM_NO_CONTACT : []);
-
-    noContactZones.forEach(zone => {
-      if (!zone.location || typeof zone.location.lat !== 'number' || typeof zone.location.lng !== 'number') return;
-
-      const isCloseToFlood = zone.is_close_to_flood ?? checkIsCloseToFlood(zone.location.lat, zone.location.lng, areaData);
-
-      const strokeColor = isCloseToFlood ? '#ef4444' : '#eab308';
-      const fillColor = isCloseToFlood ? '#dc2626' : '#facc15';
-      const statusBadge = isCloseToFlood ? 'CRITICAL - FLOOD EXPOSED' : 'NO CONTACT - SAFE';
-      const statusIcon = isCloseToFlood ? '🔴' : '🟡';
-
-      // Outer dotted circle
-      const outerCircle = L.circle([zone.location.lat, zone.location.lng], {
-        radius: zone.radius_meters || 4500,
-        color: strokeColor,
-        weight: 2.5,
-        dashArray: '5 6',
-        fillColor: fillColor,
-        fillOpacity: 0.18,
-      });
-
-      // Inner core surge dotted circle
-      const innerCircle = L.circle([zone.location.lat, zone.location.lng], {
-        radius: Math.floor((zone.radius_meters || 4500) * 0.45),
-        color: strokeColor,
-        weight: 1.5,
-        dashArray: '3 4',
-        fillColor: strokeColor,
-        fillOpacity: 0.28,
-      });
-
-      // Marker badge icon
-      const markerHtml = `
-        <div style="
-          width: 32px; height: 32px; border-radius: 50%;
-          background: ${isCloseToFlood ? 'rgba(185, 28, 28, 0.55)' : 'rgba(234, 179, 8, 0.55)'};
-          border: 2px solid ${strokeColor};
-          display: flex; align-items: center; justify-content: center;
-          font-size: 14px; cursor: pointer;
-          box-shadow: 0 0 14px ${isCloseToFlood ? 'rgba(239, 68, 68, 0.85)' : 'rgba(234, 179, 8, 0.85)'};
-          user-select: none;
-        ">${statusIcon}</div>`;
-
-      const customIcon = L.divIcon({
-        html: markerHtml,
-        className: '',
-        iconSize: [32, 32],
-        iconAnchor: [16, 16],
-      });
-
-      const marker = L.marker([zone.location.lat, zone.location.lng], { icon: customIcon });
-
-      const tooltipHtml = `
-        <div style="font-family:Inter,sans-serif;font-size:12px;padding:3px 1px;">
-          <div style="font-weight:700;color:${strokeColor};display:flex;align-items:center;gap:6px;">
-            <span>📵 No_Contact Zone</span>
-            <span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${isCloseToFlood ? 'rgba(239,68,68,0.25)' : 'rgba(234,179,8,0.25)'};border:1px solid ${strokeColor};">
-              ${statusBadge}
-            </span>
-          </div>
-          <div style="font-size:13px;color:#ffffff;font-weight:700;margin-top:3px;">
-            ${zone.name}
-          </div>
-          <div style="font-size:11px;color:#cbd5e1;margin-top:2px;">
-            Lat: ${zone.location.lat.toFixed(6)}, Lng: ${zone.location.lng.toFixed(6)}
-          </div>
-          <div style="font-size:10px;color:${isCloseToFlood ? '#fca5a5' : '#fde047'};margin-top:3px;font-style:italic;">
-            ${zone.description || (isCloseToFlood ? 'Area is close to flood exposure risk buffer (Red Dotted Circle).' : 'No-contact zone clear of flood exposure buffer (Yellow Dotted Circle).')}
-          </div>
-        </div>
-      `;
-
-      outerCircle.bindTooltip(tooltipHtml, { className: 'eoc-tooltip', direction: 'top', offset: [0, -6] });
-      innerCircle.bindTooltip(tooltipHtml, { className: 'eoc-tooltip', direction: 'top', offset: [0, -6] });
-      marker.bindTooltip(tooltipHtml, { className: 'eoc-tooltip', direction: 'top', offset: [0, -16] });
-
-      outerCircle.addTo(layers.current.no_contact);
-      innerCircle.addTo(layers.current.no_contact);
-      marker.addTo(layers.current.no_contact);
-    });
-  }, [areaData, activeLayers.no_contact, activeLayers.flood_exposure, activeLayers.water_sources, activeLayers.red_alert]);
-
-  // Red Alert Zones Layer (Nagaon, Golaghat, Sivasagar, Jorhat, Hojai, etc.)
-  useEffect(() => {
-    layers.current.red_alert?.clearLayers();
-    if (!areaData || !activeLayers.red_alert) return;
-
-    const redAlertZones = (areaData.red_alert_zones && areaData.red_alert_zones.length > 0)
-      ? areaData.red_alert_zones
-      : (areaData.area.id === 'assam-demo' ? [
-          {
-            id: 'ra-nagaon',
-            name: 'Nagaon Flood Inundation Zone',
-            district: 'Nagaon',
-            severity: 'RED_ALERT',
-            location: { lat: 26.3452, lng: 92.6840 },
-            radius_meters: 7500,
-            impact_description: 'Severe Brahmaputra backflow flood. 70+ villages submerged, critical transit cut off.',
-            affected_population: '145,000+',
-            evacuation_status: 'Mandatory Tier-1 Evacuation Active',
-          },
-          {
-            id: 'ra-golaghat',
-            name: 'Golaghat High-Risk Surge Zone',
-            district: 'Golaghat',
-            severity: 'RED_ALERT',
-            location: { lat: 26.5167, lng: 93.9667 },
-            radius_meters: 6800,
-            impact_description: 'Dhansiri river water flowing 1.8m above danger mark. Major highways inundated.',
-            affected_population: '98,000+',
-            evacuation_status: 'Active Riverbank Evacuations',
-          },
-          {
-            id: 'ra-sivasagar',
-            name: 'Sivasagar Submerged Urban & Rural Zone',
-            district: 'Sivasagar',
-            severity: 'RED_ALERT',
-            location: { lat: 26.9850, lng: 94.6300 },
-            radius_meters: 6200,
-            impact_description: 'Multiple embankment breaches on Jhanji & Dikhow rivers. Town core waterlogged.',
-            affected_population: '120,000+',
-            evacuation_status: 'Boat Rescues Deployed',
-          },
-          {
-            id: 'ra-jorhat',
-            name: 'Jorhat / Teok Inundation Belt',
-            district: 'Jorhat',
-            severity: 'RED_ALERT',
-            location: { lat: 26.7509, lng: 94.2037 },
-            radius_meters: 6500,
-            impact_description: 'National highway corridor flooded. Heavy crop & critical infrastructure damage.',
-            affected_population: '85,000+',
-            evacuation_status: 'Relief Camps Activated',
-          },
-          {
-            id: 'ra-hojai',
-            name: 'Hojai Flash Flood Danger Zone',
-            district: 'Hojai',
-            severity: 'RED_ALERT',
-            location: { lat: 26.0000, lng: 92.8600 },
-            radius_meters: 5800,
-            impact_description: 'Kopili river torrential surge. Low-lying habitations cut off from power grid.',
-            affected_population: '62,000+',
-            evacuation_status: 'Evacuation in Progress',
-          },
-        ] : []);
-
-    redAlertZones.forEach(zone => {
-      // Danger zone perimeter buffer
-      L.circle([zone.location.lat, zone.location.lng], {
-        radius: zone.radius_meters,
-        color: '#ef4444',
-        weight: 2,
-        dashArray: '5 5',
-        fillColor: '#dc2626',
-        fillOpacity: 0.16,
-      }).addTo(layers.current.red_alert);
-
-      // Inner high danger core
-      L.circle([zone.location.lat, zone.location.lng], {
-        radius: Math.floor(zone.radius_meters * 0.4),
-        color: '#b91c1c',
-        weight: 1.5,
-        fillColor: '#ef4444',
-        fillOpacity: 0.28,
-      }).addTo(layers.current.red_alert);
-
-      // Red Alert pulsating marker badge
-      const html = `
-        <div class="red-alert-marker-pulse" style="
-          width: 34px; height: 34px; border-radius: 50%;
-          background: rgba(185, 28, 28, 0.45); border: 2px solid #ef4444;
-          display: flex; align-items: center; justify-content: center;
-          font-size: 16px; cursor: pointer;
-          box-shadow: 0 0 16px rgba(239, 68, 68, 0.85);
-          user-select: none;
-        ">🛑</div>`;
-
-      const marker = L.marker([zone.location.lat, zone.location.lng], {
-        icon: L.divIcon({ html, className: 'red-alert-div-icon', iconSize: [34, 34], iconAnchor: [17, 17] }),
-      });
-
-      marker.bindTooltip(
-        `<div style="min-width:190px;">
-          <div style="font-weight:800;color:#ff4d4d;font-size:12px;font-family:Inter,sans-serif;display:flex;align-items:center;gap:4px;">
-            <span>🛑 RED ALERT: ${zone.district || zone.name}</span>
-          </div>
-          <div style="font-size:11px;font-weight:700;color:#ffffff;margin-top:3px;font-family:Inter,sans-serif;">
-            ${zone.name}
-          </div>
-          <div style="font-size:10px;color:#fca5a5;margin-top:3px;line-height:1.35;font-family:Inter,sans-serif;">
-            ${zone.impact_description}
-          </div>
-          <div style="font-size:9.5px;color:#fef08a;margin-top:4px;font-weight:600;font-family:Inter,sans-serif;">
-            👥 At Risk: ${zone.affected_population || 'High'} &middot; ${zone.evacuation_status || 'Evacuations Active'}
-          </div>
-          <div style="font-size:9px;color:#93c5fd;margin-top:4px;font-weight:600;font-family:Inter,sans-serif;">
-            → Click to trigger Tactical AI Response
-          </div>
-        </div>`,
-        { className: 'eoc-tooltip red-alert-tooltip', direction: 'top', offset: [0, -14] }
-      );
-
-      marker.on('click', () => {
-        if (onSelectIncident) {
-          onSelectIncident({
-            id: zone.id,
-            name: `RED ALERT: ${zone.name}`,
-            sev: 'CRITICAL',
-            sub: `${zone.district || 'Assam'} Sector &middot; At Risk: ${zone.affected_population || 'High'}`,
-            time: 'RED ALERT ACTIVE',
-            icon: '🛑',
-          });
-        }
-      });
-
-      marker.addTo(layers.current.red_alert);
-    });
-  }, [areaData, activeLayers.red_alert, onSelectIncident]);
 
   // Uncertainty + conflict zones
   useEffect(() => {
@@ -571,115 +138,170 @@ export default function AreaIntelligenceMapWorkspace({
     });
   }, [entities, activeLayers.uncertainty]);
 
+  // 5 Emergency Routes rendering layer
+  useEffect(() => {
+    layers.current.routes?.clearLayers();
+    if (!routes || routes.length === 0) return;
+
+    // Render non-selected routes first, then selected route on top
+    const sortedRoutes = [...routes].sort((a, b) => {
+      if (a.routeId === selectedRouteId) return 1;
+      if (b.routeId === selectedRouteId) return -1;
+      return 0;
+    });
+
+    sortedRoutes.forEach(r => {
+      const isSelected = selectedRouteId === r.routeId;
+      const latLngs = (r.coordinates || []).map((c: LocationCoordinates) => [c.lat, c.lng] as [number, number]);
+
+      if (latLngs.length < 2) return;
+
+      // Glow casing for selected route
+      if (isSelected) {
+        L.polyline(latLngs, {
+          color: r.color,
+          weight: 12,
+          opacity: 0.35,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }).addTo(layers.current.routes);
+      }
+
+      const polyline = L.polyline(latLngs, {
+        color: r.color,
+        weight: isSelected ? 6 : 4,
+        opacity: isSelected ? 1.0 : 0.45,
+        dashArray: isSelected ? undefined : '8 6',
+        lineCap: 'round',
+        lineJoin: 'round',
+      });
+
+      const tooltipContent = `
+        <div style="font-family:Inter,sans-serif;font-size:11px;">
+          <div style="font-weight:700;color:${r.color};">ROUTE ${r.routeId} (${r.name})</div>
+          <div>${r.estimatedTimeMin} min • ${r.distanceKm} km</div>
+          <div>Traffic: <b>${r.traffic.toUpperCase()}</b> | Safety: <b>${r.safety.toUpperCase()}</b></div>
+        </div>
+      `;
+
+      polyline.bindTooltip(tooltipContent, { className: 'eoc-tooltip', sticky: true });
+
+      polyline.on('click', () => {
+        if (onSelectRoute) onSelectRoute(r.routeId);
+      });
+
+      polyline.addTo(layers.current.routes);
+
+      // Start & End markers for the selected route
+      if (isSelected && r.coordinates && r.coordinates.length > 0) {
+        const start = r.coordinates[0];
+        const end = r.coordinates[r.coordinates.length - 1];
+
+        const startIcon = L.divIcon({
+          html: `<div style="background:#10b981;color:#000;font-weight:900;font-size:11px;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 0 16px #10b981;cursor:pointer;">A</div>`,
+          className: '',
+          iconSize: [26, 26],
+          iconAnchor: [13, 13],
+        });
+
+        const endIcon = L.divIcon({
+          html: `<div style="background:#ef4444;color:#fff;font-weight:900;font-size:11px;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 0 16px #ef4444;cursor:pointer;">B</div>`,
+          className: '',
+          iconSize: [26, 26],
+          iconAnchor: [13, 13],
+        });
+
+        L.marker([start.lat, start.lng], { icon: startIcon, zIndexOffset: 1000 })
+          .bindTooltip(`<b>Point A (Origin)</b><br/>${start.lat.toFixed(4)}, ${start.lng.toFixed(4)}`, { className: 'eoc-tooltip' })
+          .addTo(layers.current.routes);
+
+        L.marker([end.lat, end.lng], { icon: endIcon, zIndexOffset: 1000 })
+          .bindTooltip(`<b>Point B (Destination)</b><br/>${end.lat.toFixed(4)}, ${end.lng.toFixed(4)}`, { className: 'eoc-tooltip' })
+          .addTo(layers.current.routes);
+      }
+    });
+  }, [routes, selectedRouteId, onSelectRoute]);
+
   // Entity + incident + unit markers
   useEffect(() => {
     layers.current.markers?.clearLayers();
 
-    // Infrastructure entities - Clean circular symbol badge with hover tooltip & click to open inspector
+    // Infrastructure entities
     if (activeLayers.infrastructure) {
       entities.forEach(e => {
-        if (!e.location || typeof e.location.lat !== 'number' || typeof e.location.lng !== 'number') return;
         const color = stateColor(e.current_state);
-        const staleRing = e.is_stale ? 'box-shadow: 0 0 0 2.5px #f59e0b, 0 0 12px rgba(245,158,11,0.6);' : `box-shadow: 0 0 10px ${color}66;`;
+        const staleRing = e.is_stale ? 'box-shadow:0 0 0 3px #f59e0b,0 0 10px rgba(245,158,11,0.5);' : '';
         const html = `
-          <div class="infra-badge-marker" style="
-            width: 30px; height: 30px; border-radius: 50%;
-            background: ${color}28; border: 2px solid ${color};
-            display: flex; align-items: center; justify-content: center;
-            font-size: 14px; cursor: pointer;
-            ${staleRing}
-            user-select: none;
-          ">${typeIcon(e.type)}</div>`;
-        const icon = L.divIcon({ html, className: 'infra-div-icon', iconSize: [30, 30], iconAnchor: [15, 15] });
-        const marker = L.marker([e.location.lat, e.location.lng], { icon });
-
-        marker.bindTooltip(
-          `<div>
-            <div style="font-weight:700;color:#fff;font-size:12px;font-family:Inter,sans-serif;">${typeIcon(e.type)} ${e.name}</div>
-            <div style="font-size:10px;color:${color};font-weight:600;font-family:Inter,sans-serif;margin-top:2px;">
-              ${e.current_state}${e.is_stale ? ' &middot; ⚠ STALE' : ''} &middot; ${(e.confidence * 100).toFixed(0)}% Confidence
+          <div style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+            <div style="
+              width:26px;height:26px;border-radius:50%;
+              background:${color}22;border:2px solid ${color};
+              display:flex;align-items:center;justify-content:center;
+              font-size:12px;flex-shrink:0;${staleRing}
+            ">${typeIcon(e.type)}</div>
+            <div style="
+              background:rgba(6,14,28,0.92);border:1px solid rgba(0,229,255,0.2);
+              padding:3px 8px;border-radius:3px;white-space:nowrap;
+            ">
+              <div style="font-size:11px;font-weight:700;color:#fff;font-family:Inter,sans-serif;">${e.name}</div>
+              <div style="font-size:10px;color:${color};font-weight:600;font-family:Inter,sans-serif;">${e.current_state}${e.is_stale ? ' · ⚠' : ''}</div>
             </div>
-            ${e.location.address ? `<div style="font-size:9.5px;color:#94a3b8;margin-top:2px;">${e.location.address}</div>` : ''}
-          </div>`,
-          { className: 'eoc-tooltip', direction: 'top', offset: [0, -10] }
-        );
-
-        marker.on('click', () => onSelectEntity(e));
-        marker.addTo(layers.current.markers);
+          </div>`;
+        const icon = L.divIcon({ html, className: '', iconSize: [150, 34] });
+        L.marker([e.location.lat, e.location.lng], { icon })
+          .on('click', () => onSelectEntity(e))
+          .addTo(layers.current.markers);
       });
     }
 
-    // Incidents - Compact symbol icon with hover tooltip and click-to-open window
+    // Incidents
     if (activeLayers.incidents && areaData?.incidents) {
       areaData.incidents.forEach(inc => {
-        if (!inc.location || typeof inc.location.lat !== 'number' || typeof inc.location.lng !== 'number') return;
         const html = `
-          <div class="incident-badge-marker" style="
-            width: 32px; height: 32px; border-radius: 50%;
-            background: rgba(220, 38, 38, 0.35); border: 2px solid #ef4444;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 15px; cursor: pointer;
-            box-shadow: 0 0 12px rgba(239, 68, 68, 0.7);
-            user-select: none;
-          ">🚨</div>`;
-        const marker = L.marker([inc.location.lat, inc.location.lng], {
-          icon: L.divIcon({ html, className: 'inc-div-icon', iconSize: [32, 32], iconAnchor: [16, 16] }),
-        });
-
-        marker.bindTooltip(
-          `<div>
-            <div style="font-weight:700;color:#fff;font-size:12px;font-family:Inter,sans-serif;">🚨 ${inc.name}</div>
-            <div style="font-size:10px;color:#fca5a5;font-weight:600;font-family:Inter,sans-serif;">${inc.severity} SEVERITY &middot; Click to inspect</div>
-          </div>`,
-          { className: 'eoc-tooltip', direction: 'top', offset: [0, -12] }
-        );
-
-        marker.on('click', () => {
-          if (onSelectIncident) {
-            onSelectIncident({
-              id: inc.id || `inc-${Date.now()}`,
-              name: inc.name,
-              sev: (inc.severity || 'high').toLowerCase(),
-              sub: `${areaData?.area.name || 'Operations Zone'} Sector`,
-              time: 'Active Alert',
-              icon: '🚨',
-            });
-          }
-        });
-
-        marker.addTo(layers.current.markers);
+          <div style="display:flex;align-items:center;gap:5px;">
+            <div style="
+              width:26px;height:26px;border-radius:50%;
+              background:#dc262622;border:2px solid #dc2626;
+              display:flex;align-items:center;justify-content:center;font-size:12px;
+            ">🚨</div>
+            <div style="
+              background:rgba(6,14,28,0.92);border:1px solid rgba(239,68,68,0.3);
+              padding:3px 8px;border-radius:3px;white-space:nowrap;
+            ">
+              <div style="font-size:11px;font-weight:700;color:#fff;font-family:Inter,sans-serif;">${inc.name}</div>
+              <div style="font-size:10px;color:#fca5a5;font-weight:600;font-family:Inter,sans-serif;">${inc.severity} SEVERITY</div>
+            </div>
+          </div>`;
+        L.marker([inc.location.lat, inc.location.lng], {
+          icon: L.divIcon({ html, className: '', iconSize: [140, 34] }),
+        }).addTo(layers.current.markers);
       });
     }
 
-    // Field units - Clean circular badge with hover tooltip
+    // Field units
     if (activeLayers.field_units && areaData?.field_units) {
       areaData.field_units.forEach(u => {
-        if (!u.location || typeof u.location.lat !== 'number' || typeof u.location.lng !== 'number') return;
         const html = `
-          <div class="unit-badge-marker" style="
-            width: 28px; height: 28px; border-radius: 50%;
-            background: rgba(37, 99, 235, 0.25); border: 2px solid #38bdf8;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 13px; cursor: pointer;
-            box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
-            user-select: none;
-          ">📱</div>`;
-        const marker = L.marker([u.location.lat, u.location.lng], {
-          icon: L.divIcon({ html, className: 'unit-div-icon', iconSize: [28, 28], iconAnchor: [14, 14] }),
-        });
-
-        marker.bindTooltip(
-          `<div>
-            <div style="font-weight:700;color:#fff;font-size:12px;font-family:Inter,sans-serif;">📱 ${u.callsign}</div>
-            <div style="font-size:10px;color:#93c5fd;font-weight:600;font-family:Inter,sans-serif;">${u.status}</div>
-          </div>`,
-          { className: 'eoc-tooltip', direction: 'top', offset: [0, -10] }
-        );
-
-        marker.addTo(layers.current.markers);
+          <div style="display:flex;align-items:center;gap:5px;">
+            <div style="
+              width:26px;height:26px;border-radius:50%;
+              background:#2563eb22;border:2px solid #2563eb;
+              display:flex;align-items:center;justify-content:center;font-size:12px;
+            ">📱</div>
+            <div style="
+              background:rgba(6,14,28,0.92);border:1px solid rgba(37,99,235,0.3);
+              padding:3px 8px;border-radius:3px;white-space:nowrap;
+            ">
+              <div style="font-size:11px;font-weight:700;color:#fff;font-family:Inter,sans-serif;">${u.callsign}</div>
+              <div style="font-size:10px;color:#93c5fd;font-weight:600;font-family:Inter,sans-serif;">${u.status}</div>
+            </div>
+          </div>`;
+        L.marker([u.location.lat, u.location.lng], {
+          icon: L.divIcon({ html, className: '', iconSize: [130, 34] }),
+        }).addTo(layers.current.markers);
       });
     }
-  }, [entities, areaData, activeLayers, onSelectEntity, onSelectIncident]);
+  }, [entities, areaData, activeLayers, onSelectEntity]);
 
   // Resize observer to ensure Leaflet renders edge-to-edge on full-screen / idle transition
   useEffect(() => {
@@ -695,55 +317,15 @@ export default function AreaIntelligenceMapWorkspace({
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
       <style>{`
-        @keyframes incPulseAnimation {
-          0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.8), 0 0 10px rgba(239, 68, 68, 0.5); }
-          70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0), 0 0 18px rgba(239, 68, 68, 0.8); }
-          100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0), 0 0 10px rgba(239, 68, 68, 0.5); }
-        }
-        @keyframes redAlertPulse {
-          0% { box-shadow: 0 0 0 0 rgba(255, 30, 30, 0.9), 0 0 16px rgba(239, 68, 68, 0.8); }
-          70% { box-shadow: 0 0 0 14px rgba(255, 30, 30, 0), 0 0 24px rgba(239, 68, 68, 0.95); }
-          100% { box-shadow: 0 0 0 0 rgba(255, 30, 30, 0), 0 0 16px rgba(239, 68, 68, 0.8); }
-        }
-        .red-alert-marker-pulse {
-          animation: redAlertPulse 1.5s infinite;
-          transition: transform 0.15s ease;
-        }
-        .incident-badge-marker {
-          animation: incPulseAnimation 1.8s infinite;
-          transition: transform 0.15s ease;
-        }
-        .incident-badge-marker:hover, .infra-badge-marker:hover, .unit-badge-marker:hover, .red-alert-marker-pulse:hover {
-          transform: scale(1.22);
-        }
-        .infra-badge-marker, .unit-badge-marker {
-          transition: transform 0.15s ease, box-shadow 0.15s ease;
-        }
-        .inc-div-icon, .infra-div-icon, .unit-div-icon, .red-alert-div-icon, .river-div-icon {
-          background: transparent !important;
-          border: none !important;
-        }
-        .river-name-pill {
-          transition: transform 0.15s ease, box-shadow 0.15s ease;
-        }
-        .river-name-pill:hover {
-          transform: scale(1.15);
-          box-shadow: 0 0 16px rgba(56, 189, 248, 0.8) !important;
-        }
         .eoc-tooltip {
-          background: rgba(6,14,28,0.96) !important;
+          background: rgba(6,14,28,0.95) !important;
           border: 1px solid rgba(0,229,255,0.3) !important;
           color: #c8d9f0 !important;
           font-family: Inter, sans-serif !important;
           font-size: 12px !important;
-          padding: 5px 10px !important;
-          border-radius: 4px !important;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.6) !important;
-          line-height: 1.35;
-        }
-        .red-alert-tooltip {
-          border: 1.5px solid rgba(239, 68, 68, 0.7) !important;
-          box-shadow: 0 4px 24px rgba(239, 68, 68, 0.45) !important;
+          padding: 4px 10px !important;
+          border-radius: 3px !important;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
         }
         .eoc-tooltip::before { display: none !important; }
         .leaflet-container { background: #030712; }

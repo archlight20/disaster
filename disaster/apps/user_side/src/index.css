@@ -1,0 +1,79 @@
+@charset "UTF-8";
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+  /* Bright High-Contrast Light Theme */
+  --bg-dark: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f1f5f9;
+  
+  --border-cyan: rgba(2, 132, 199, 0.3);
+  --border-blue: rgba(2, 132, 199, 0.35);
+  --border-red: rgba(220, 38, 38, 0.4);
+  --border-amber: rgba(217, 119, 6, 0.4);
+  --border-emerald: rgba(5, 150, 105, 0.4);
+  --border-slate: #cbd5e1;
+
+  --color-cyan: #0284c7;
+  --color-blue: #2563eb;
+  --color-emerald: #059669;
+  --color-amber: #d97706;
+  --color-red: #dc2626;
+
+  --text-main: #0f172a;
+  --text-dark: #0f172a;
+  --text-sub: #334155;
+  --text-muted: #475569;
+  --text-light-muted: #64748b;
+
+  --font-sans: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'Space Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+@keyframes pulseRing {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 0.35;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.85;
+  }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin-icon {
+  animation: spin 1.2s linear infinite;
+}

@@ -11,7 +11,9 @@ import MediaWindow from './components/windows/MediaWindow';
 import IncidentDetailWindow, { IncidentData } from './components/windows/IncidentDetailWindow';
 import AlertFeedWindow from './components/windows/AlertFeedWindow';
 import ResourceBoardWindow from './components/windows/ResourceBoardWindow';
+import RouteFinderWindow from './components/windows/RouteFinderWindow';
 import { SCRIPTED_TIMELINE, SimEvent } from './services/DisasterEngine';
+import { RouteDetail } from '@disaster/protocol';
 
 
 /* ── Type Definitions ─────────────────────────────────────────────── */
@@ -26,18 +28,11 @@ export interface AreaIntelligence {
     id: string; name: string; type: string;
     location: { lat: number; lng: number };
     risk_radius_meters: number;
-    path_coordinates?: Array<[number, number]>;
-    flood_zones?: Array<{
-      name: string;
-      location: { lat: number; lng: number };
-      radius_meters: number;
-    }>;
   }>;
   infrastructure: Array<{
     id: string; type: string; name: string;
-    district?: string;
-    location: { lat: number; lng: number; address?: string };
-    status: string; last_verified?: string; confidence?: number;
+    location: { lat: number; lng: number };
+    status: string; last_verified: string; confidence: number;
   }>;
   incidents: Array<{
     id: string; name: string; severity: string;
@@ -48,31 +43,11 @@ export interface AreaIntelligence {
     location: { lat: number; lng: number };
     status: string;
   }>;
-  red_alert_zones?: Array<{
-    id: string;
-    name: string;
-    district: string;
-    severity: string;
-    location: { lat: number; lng: number };
-    radius_meters: number;
-    impact_description: string;
-    affected_population?: string;
-    evacuation_status?: string;
-  }>;
-  no_contact_zones?: Array<{
-    id: string;
-    name: string;
-    district?: string;
-    location: { lat: number; lng: number };
-    radius_meters?: number;
-    description?: string;
-    is_close_to_flood?: boolean;
-  }>;
 }
 
 export interface Entity {
   id: string;
-  type: string;
+  type: 'ROAD' | 'BRIDGE' | 'SHELTER' | 'HOSPITAL' | 'INCIDENT';
   name: string;
   current_state: string;
   location: { lat: number; lng: number; address?: string };
@@ -112,11 +87,9 @@ export interface TaskRecord {
 const SERVER = 'http://localhost:4000';
 
 const LAYER_META = [
-  { key: 'no_contact'     as const, icon: '📵', label: 'No Contact'     },
+  { key: 'infrastructure' as const, icon: '🏗', label: 'Infrastructure' },
   { key: 'water_sources'  as const, icon: '💧', label: 'Water Sources'  },
   { key: 'flood_exposure' as const, icon: '🌊', label: 'Flood Exposure'  },
-  { key: 'red_alert'      as const, icon: '🛑', label: 'Red Alert'      },
-  { key: 'infrastructure' as const, icon: '🏗', label: 'Infrastructure' },
   { key: 'incidents'      as const, icon: '🚨', label: 'Incidents'       },
   { key: 'field_units'    as const, icon: '📱', label: 'Field Units'     },
   { key: 'uncertainty'    as const, icon: '⚠',  label: 'Uncertainty'     },
@@ -190,7 +163,7 @@ function AwarenessGauge({ fresh, stale, conflict }: { fresh: number; stale: numb
 export default function App() {
   const now = useClock();
 
-  const [selectedAreaId, setSelectedAreaId] = useState<'sector-4-demo' | 'assam-demo' | 'delhi-demo'>('assam-demo');
+  const [selectedAreaId, setSelectedAreaId] = useState<'sector-4-demo' | 'delhi-demo' | 'assam-demo'>('sector-4-demo');
   const [areaData,    setAreaData]    = useState<AreaIntelligence | null>(null);
   const [entities,    setEntities]    = useState<Entity[]>([]);
   const [conflicts,   setConflicts]   = useState<Conflict[]>([]);
@@ -200,15 +173,17 @@ export default function App() {
   const [activeTab,   setActiveTab]   = useState<'tactical' | 'uncertainty' | 'grid'>('tactical');
   const [apiOnline,   setApiOnline]   = useState(false);
 
+  // Emergency 5-Route Engine State
+  const [routes,          setRoutes]          = useState<RouteDetail[]>([]);
+  const [selectedRouteId, setSelectedRouteId] = useState<number | null>(1);
+
   const [layers, setLayers] = useState({
-    no_contact:     true,
-    red_alert:      false,
-    infrastructure: false,
-    water_sources:  false,
-    flood_exposure: false,
-    incidents:      false,
-    field_units:    false,
-    uncertainty:    false,
+    infrastructure: true,
+    water_sources:  true,
+    flood_exposure: true,
+    incidents:      true,
+    field_units:    true,
+    uncertainty:    true,
   });
 
   // Windows State Management
@@ -222,53 +197,48 @@ export default function App() {
   const loadArea = async (id: string) => {
     try {
       const r = await fetch(`/data/areas/${id}.json`);
-      const data: AreaIntelligence = await r.json();
-      setAreaData(data);
-
-      if (data && Array.isArray(data.infrastructure)) {
-        const areaEntities: Entity[] = data.infrastructure.map((inf: any, idx: number) => {
-          const lat = typeof inf.location?.lat === 'number' ? inf.location.lat : typeof inf.lat === 'number' ? inf.lat : 0;
-          const lng = typeof inf.location?.lng === 'number' ? inf.location.lng : typeof inf.lng === 'number' ? inf.lng : 0;
-          const address = typeof inf.location === 'string' ? inf.location : inf.location?.address || inf.district || inf.name;
-          const status = inf.status || 'OPERATIONAL';
-          const isStale = (typeof inf.confidence === 'number' && inf.confidence < 0.90) || 
-            (typeof status === 'string' && (status.toUpperCase().includes('COLLAPSE') || status.toUpperCase().includes('WASH') || status.toUpperCase().includes('BREACH')));
-          const hasConflict = typeof status === 'string' && status.toUpperCase().includes('CONFLICT');
-
-          return {
-            id: inf.id || `infra-${id}-${idx + 1}`,
-            name: inf.name || `Infrastructure ${idx + 1}`,
-            type: inf.type || 'ROAD',
-            current_state: status,
-            location: { lat, lng, address },
-            last_observed_at: inf.last_verified || new Date().toISOString(),
-            valid_until: new Date(Date.now() + 3600000).toISOString(),
-            confidence: typeof inf.confidence === 'number' ? inf.confidence : 0.95,
-            last_source_id: inf.district ? `District-${inf.district}` : 'Field-Telemetry',
-            is_stale: isStale,
-            has_conflict: hasConflict,
-            evidence_ids: [],
-          };
-        });
-        setEntities(areaEntities);
-      }
-    } catch (err) {
-      console.error('Failed to load area data', err);
-    }
+      setAreaData(await r.json());
+    } catch { /* dataset not found */ }
   };
 
   const fetchState = async () => {
     try {
-      const [s, u, t] = await Promise.all([
+      const [s, u, t, a] = await Promise.all([
         fetch(`${SERVER}/api/state`).then(r => r.json()),
         fetch(`${SERVER}/api/uncertainty`).then(r => r.json()),
         fetch(`${SERVER}/api/tasks`).then(r => r.json()),
+        fetch(`${SERVER}/api/alerts`).then(r => r.json()),
       ]);
-      if (s.entities && s.entities.length > 0 && selectedAreaId === 'sector-4-demo') {
-        setEntities(s.entities);
-      }
+      setEntities(s.entities   || []);
       setConflicts(u.conflicts || []);
       setTasks(t.tasks         || []);
+      const citizenAlerts: SimEvent[] = (a.alerts || []).map((alert: any) => ({
+        id: `citizen-${alert.id}`,
+        simTimeMinutes: 0,
+        title: alert.title,
+        severity: alert.severity === 'CRITICAL' ? 'CRITICAL' : alert.severity === 'MEDIUM' ? 'MEDIUM' : 'HIGH',
+        category: 'MEDICAL',
+        description: `${alert.description} (${alert.location?.address || `${alert.location?.lat}, ${alert.location?.lng}`})`,
+        affectedEntityId: alert.affectedEntityId,
+        suggestedAction: alert.suggestedAction,
+        acknowledged: alert.acknowledged,
+      }));
+      setCitizenIncidents((a.alerts || []).map((alert: any) => ({
+        id: alert.affectedEntityId || alert.id,
+        name: alert.title,
+        sev: String(alert.severity || 'HIGH').toLowerCase(),
+        sub: `${alert.description || 'Citizen report'} · ${alert.location?.address || 'Live location'}`,
+        time: fmtAge(alert.observedAt),
+        icon: alert.severity === 'CRITICAL' ? '🚨' : '⚠️',
+      })));
+      setActiveEvents(existing => {
+        const scriptedAlerts = existing.filter(event => !event.id.startsWith('citizen-'));
+        const existingCitizenIds = new Set(citizenAlerts.map(event => event.id));
+        return [
+          ...citizenAlerts,
+          ...scriptedAlerts.filter(event => !existingCitizenIds.has(event.id)),
+        ];
+      });
       setApiOnline(true);
     } catch { setApiOnline(false); }
   };
@@ -277,6 +247,7 @@ export default function App() {
   const [simRunning, setSimRunning] = useState<boolean>(true);
   const [simSeconds, setSimSeconds] = useState<number>(0);
   const [activeEvents, setActiveEvents] = useState<SimEvent[]>([]);
+  const [citizenIncidents, setCitizenIncidents] = useState<IncidentData[]>([]);
 
   // Simulation Clock: 1 real second = 1 sim minute
   useEffect(() => {
@@ -352,6 +323,7 @@ export default function App() {
   /* Derived */
   const staleList = entities.filter(e => e.is_stale);
   const freshList = entities.filter(e => !e.is_stale && !e.has_conflict);
+  const liveIncidents = [...citizenIncidents, ...DEMO_INCIDENTS];
 
   /* Window helpers */
   const toggleWindow = (id: WindowId) => {
@@ -415,7 +387,7 @@ export default function App() {
     openWindow('incident');
   };
 
-  const handleDispatch = async (ev?: React.FormEvent, customTitle?: string, customEntity?: string) => {
+  const handleDispatch = async (ev?: React.FormEvent, customTitle?: string, customEntity?: string, assignedUnitId = 'unit-17') => {
     if (ev) ev.preventDefault();
     const title = customTitle || taskTitle;
     const entity_id = customEntity || taskEntity;
@@ -425,7 +397,7 @@ export default function App() {
       await fetch(`${SERVER}/api/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, entity_id: entity_id || 'general', assigned_unit_id: 'unit-17', priority: 'HIGH' }),
+        body: JSON.stringify({ title, entity_id: entity_id || 'general', assigned_unit_id: assignedUnitId, priority: 'HIGH' }),
       });
       setTaskTitle(''); setTaskEntity('');
       fetchState();
@@ -437,7 +409,7 @@ export default function App() {
           title,
           description: 'Local dispatch task',
           entity_id: entity_id || 'general',
-          assigned_unit_id: 'Unit-17',
+          assigned_unit_id: assignedUnitId,
           priority: 'HIGH',
           status: 'OPEN',
           created_at: new Date().toISOString(),
@@ -445,6 +417,18 @@ export default function App() {
         ...prev,
       ]);
     }
+  };
+
+  const resolveConflict = async (conflict: Conflict) => {
+    const candidate = [...conflict.conflicting_deltas]
+      .sort((a, b) => new Date(b.observed_at).getTime() - new Date(a.observed_at).getTime())[0];
+    if (!candidate) return;
+    const response = await fetch(`${SERVER}/api/conflicts/${conflict.conflict_id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolved_state: candidate.new_state, resolution_notes: 'Accepted latest observed report.' }),
+    });
+    if (response.ok) fetchState();
   };
 
   const toggleLayer = (k: keyof typeof layers) =>
@@ -474,8 +458,8 @@ export default function App() {
             onChange={e => setSelectedAreaId(e.target.value as any)}
           >
             <option value="sector-4-demo">📍 Sector 4</option>
-            <option value="assam-demo">📍 Assam</option>
             <option value="delhi-demo">📍 Delhi NCR</option>
+            <option value="assam-demo">📍 Assam Flood Zone</option>
           </select>
         </div>
 
@@ -583,7 +567,7 @@ export default function App() {
         <div className="ps">
           <div className="ps-hdr">Area Intelligence</div>
           <div className="ps-body">
-            {(['assam-demo','sector-4-demo','delhi-demo'] as const).map(id => (
+            {(['sector-4-demo', 'delhi-demo', 'assam-demo'] as const).map(id => (
               <div
                 key={id}
                 className={`area-item ${selectedAreaId === id ? 'active' : ''}`}
@@ -591,8 +575,8 @@ export default function App() {
               >
                 <div className="area-dot" />
                 <div>
-                  <div className="area-name">{id === 'sector-4-demo' ? 'Sector 4,Bangalore' : id === 'assam-demo' ? 'Guwahati,Assam' : 'Delhi NCR'}</div>
-                  <div className="area-sub">{id === 'sector-4-demo' ? 'Local demo dataset' : id === 'assam-demo' ? 'Assam demo dataset' : 'Regional dataset'}</div>
+                  <div className="area-name">{id === 'sector-4-demo' ? 'Sector 4' : id === 'delhi-demo' ? 'Delhi NCR' : 'Assam Flood Zone'}</div>
+                  <div className="area-sub">{id === 'sector-4-demo' ? 'Local demo dataset' : id === 'delhi-demo' ? 'Regional dataset' : 'Flood operations dataset'}</div>
                 </div>
               </div>
             ))}
@@ -626,14 +610,6 @@ export default function App() {
             {areaData && (
               <div style={{ marginTop: 16 }}>
                 <div className="ps-hdr" style={{ padding: '0 0 6px' }}>Area Stats</div>
-                <div className="stat-row">
-                  <span className="stat-lbl">No Contact Zones</span>
-                  <span className="stat-val" style={{ color: '#eab308', fontWeight: 800 }}>{areaData.no_contact_zones?.length ?? (areaData.area.id === 'assam-demo' ? 5 : 0)}</span>
-                </div>
-                <div className="stat-row">
-                  <span className="stat-lbl">Red Alert Zones</span>
-                  <span className="stat-val" style={{ color: '#ef4444', fontWeight: 800 }}>{areaData.red_alert_zones?.length ?? (areaData.area.id === 'assam-demo' ? 5 : 0)}</span>
-                </div>
                 <div className="stat-row">
                   <span className="stat-lbl">Infrastructure</span>
                   <span className="stat-val" style={{ color: 'var(--cyan-dim)' }}>{areaData.infrastructure.length}</span>
@@ -704,29 +680,27 @@ export default function App() {
               areaData={areaData}
               entities={entities}
               conflicts={conflicts}
+              routes={routes}
+              selectedRouteId={selectedRouteId}
+              onSelectRoute={(id) => setSelectedRouteId(id)}
               activeLayers={{
                 ...layers,
                 uncertainty: activeTab === 'uncertainty' || layers.uncertainty,
               }}
               onSelectEntity={openInspector}
-              onSelectIncident={openIncident}
             />
           </div>
         )}
 
         {/* Legend */}
         <div className="map-legend">
-          <div className="leg-item"><div className="leg-ring" style={{ borderColor: '#eab308', borderStyle: 'dashed' }} /> No Contact (Safe)</div>
-          <div className="leg-pipe" />
-          <div className="leg-item"><div className="leg-ring" style={{ borderColor: '#ef4444', borderStyle: 'dashed' }} /> No Contact (Flood Risk)</div>
-          <div className="leg-pipe" />
-          <div className="leg-item"><div className="leg-dot" style={{ background: '#ef4444' }} /> Red Alert</div>
-          <div className="leg-pipe" />
           <div className="leg-item"><div className="leg-dot" style={{ background: '#10b981' }} /> Operational</div>
           <div className="leg-pipe" />
           <div className="leg-item"><div className="leg-dot" style={{ background: '#ef4444' }} /> Blocked</div>
           <div className="leg-pipe" />
           <div className="leg-item"><div className="leg-ring" style={{ borderColor: '#f59e0b' }} /> Stale Zone</div>
+          <div className="leg-pipe" />
+          <div className="leg-item"><div className="leg-ring" style={{ borderColor: '#ef4444' }} /> Conflict</div>
           <div className="leg-pipe" />
           <div className="leg-item"><div className="leg-box" style={{ background: '#38bdf8' }} /> Flood Risk</div>
         </div>
@@ -766,7 +740,7 @@ export default function App() {
                 </div>
               ))}
               {conflicts.map(c => (
-                <div key={c.conflict_id} className="unc-card conflict" onClick={() => openWindow('commandAI')}>
+                <div key={c.conflict_id} className="unc-card conflict">
                   <div className="unc-card-hdr">
                     <span className="unc-name">{c.entity_name}</span>
                     <span className="unc-badge unc-badge-conflict">CONFLICT</span>
@@ -775,7 +749,10 @@ export default function App() {
                     <span className="unc-key">Reports</span>
                     <span className="unc-val unc-val-danger">{c.conflicting_deltas.length} conflicting</span>
                   </div>
-                  <div className="unc-action">→ Run AI Conflict Triage</div>
+                  <div className="unc-action" onClick={() => openWindow('commandAI')}>→ Run AI Conflict Triage</div>
+                  <button type="button" className="btn-alert-ack" onClick={() => resolveConflict(c)}>
+                    ACCEPT LATEST REPORT
+                  </button>
                 </div>
               ))}
             </div>
@@ -785,10 +762,10 @@ export default function App() {
           <div className="rps">
             <div className="rps-hdr">
               🚨 Active Incidents
-              <span className="rp-badge rp-badge-danger">{DEMO_INCIDENTS.length}</span>
+              <span className="rp-badge rp-badge-danger">{liveIncidents.length}</span>
             </div>
             <div className="rps-body">
-              {DEMO_INCIDENTS.map(inc => (
+              {liveIncidents.map(inc => (
                 <div key={inc.id} className={`inc-item inc-sev-${inc.sev}`} onClick={() => openIncident(inc)}>
                   <span className="inc-icon">{inc.icon}</span>
                   <div>
@@ -849,8 +826,9 @@ export default function App() {
 
       {/* ══ BOTTOM DOCK BAR (DYNAMIC WINDOW CONTROLLER) ══════════════ */}
       <footer className="eoc-dock">
-        {(['commandAI', 'inspector', 'comms', 'media', 'incident', 'grid'] as const).map(id => {
+        {(['routeFinder', 'commandAI', 'inspector', 'comms', 'media', 'incident', 'grid'] as const).map(id => {
           const w = windows[id];
+          if (!w) return null;
           const isActive = w.isOpen && !w.isMinimized;
           return (
             <button
@@ -858,7 +836,8 @@ export default function App() {
               className={`dock-btn ${isActive ? 'active' : w.isOpen ? 'minimized' : ''}`}
               onClick={() => toggleWindow(id)}
             >
-              {w.icon} {w.title.replace(/^(🤖|🔎|📡|📷|🚨|📊)\s*/, '')}
+              {w.icon} {w.title.replace(/^(🤖|🔎|📡|📷|🚨|📊|🧭)\s*/, '')}
+              {id === 'routeFinder' && <span className="dock-badge">5</span>}
               {id === 'comms' && <span className="dock-badge">3</span>}
               {id === 'media' && <span className="dock-badge">LIVE</span>}
             </button>
@@ -887,13 +866,13 @@ export default function App() {
         onFocus={() => focusWindow('commandAI')}
       >
         <CommandAIWindow
-          areaName={areaData?.area.name || 'Selected Area'}
+          areaName={areaData?.area.name || 'Sector 4'}
           verifiedCount={freshList.length}
           staleCount={staleList.length}
           conflictCount={conflicts.length}
           staleEntities={staleList.map(e => ({ name: e.name, current_state: e.current_state, ageStr: fmtAge(e.last_observed_at) }))}
           conflicts={conflicts.map(c => ({ entity_name: c.entity_name, count: c.conflicting_deltas.length }))}
-          incidents={DEMO_INCIDENTS}
+          incidents={liveIncidents}
         />
       </WindowManager>
 
@@ -909,7 +888,34 @@ export default function App() {
           onAskAIAboutAlert={(alert) => {
             openWindow('commandAI');
           }}
-          onAcknowledge={(id) => {}}
+          onAcknowledge={async (id) => {
+            if (!id.startsWith('citizen-')) return;
+            await fetch(`${SERVER}/api/alerts/${id.slice('citizen-'.length)}/acknowledge`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ acknowledged_by: 'command-center' }),
+            });
+          }}
+        />
+      </WindowManager>
+
+      {/* 1d. Emergency Route Finder Window */}
+      <WindowManager
+        win={windows.routeFinder}
+        onUpdate={updateWindow}
+        onClose={() => closeWindow('routeFinder')}
+        onFocus={() => focusWindow('routeFinder')}
+      >
+        <RouteFinderWindow
+          serverUrl={SERVER}
+          areaId={selectedAreaId}
+          onRoutesCalculated={(rList, firstId) => {
+            setRoutes(rList);
+            if (firstId !== null) setSelectedRouteId(firstId);
+          }}
+          selectedRouteId={selectedRouteId}
+          onSelectRoute={(id) => setSelectedRouteId(id)}
+          onDispatchTask={(title, entityId) => handleDispatch(undefined, title, entityId)}
         />
       </WindowManager>
 
@@ -921,7 +927,7 @@ export default function App() {
         onFocus={() => focusWindow('resourceBoard')}
       >
         <ResourceBoardWindow
-          onDispatchUnit={(unitId, taskTitle) => handleDispatch(undefined, taskTitle, unitId)}
+          onDispatchUnit={(unitId, taskTitle) => handleDispatch(undefined, taskTitle, 'general', unitId)}
         />
       </WindowManager>
 

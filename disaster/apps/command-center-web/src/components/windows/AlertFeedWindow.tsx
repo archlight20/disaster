@@ -9,7 +9,9 @@ interface AlertFeedWindowProps {
 
 export default function AlertFeedWindow({ events, onAskAIAboutAlert, onAcknowledge }: AlertFeedWindowProps) {
   const [filter, setFilter] = useState<'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM'>('ALL');
-  const [ackMap, setAckMap] = useState<Record<string, boolean>>({});
+  const [ackMap, setAckMap] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(events.filter(event => event.acknowledged).map(event => [event.id, true]))
+  );
   const alertEndRef = React.useRef<HTMLDivElement>(null);
 
   const handleAck = (id: string) => {
@@ -25,6 +27,13 @@ export default function AlertFeedWindow({ events, onAskAIAboutAlert, onAcknowled
   React.useEffect(() => {
     alertEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [events.length]);
+
+  React.useEffect(() => {
+    setAckMap(previous => ({
+      ...previous,
+      ...Object.fromEntries(events.filter(event => event.acknowledged).map(event => [event.id, true])),
+    }));
+  }, [events]);
 
 
   return (
@@ -56,7 +65,7 @@ export default function AlertFeedWindow({ events, onAskAIAboutAlert, onAcknowled
                   <span className={`alert-badge badge-${evt.severity.toLowerCase()}`}>
                     {evt.severity === 'CRITICAL' ? '🚨 CRITICAL' : evt.severity === 'HIGH' ? '⚠️ HIGH' : 'ℹ️ MEDIUM'}
                   </span>
-                  <span className="alert-time">Sim T+{evt.simTimeMinutes}m</span>
+                  <span className="alert-time">{evt.simTimeMinutes === 0 ? '🔴 LIVE' : `Sim T+${evt.simTimeMinutes}m`}</span>
                   <span className="alert-cat">{evt.category}</span>
                 </div>
 
