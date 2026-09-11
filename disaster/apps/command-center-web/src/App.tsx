@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import AreaIntelligenceMapWorkspace from './components/AreaIntelligenceMapWorkspace';
 import GridWorkspace from './components/GridWorkspace';
@@ -177,6 +177,10 @@ export default function App() {
   const [routes,          setRoutes]          = useState<RouteDetail[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<number | null>(1);
 
+  const handleSelectRoute = useCallback((id: number) => {
+    setSelectedRouteId(id);
+  }, []);
+
   const [layers, setLayers] = useState({
     infrastructure: true,
     water_sources:  true,
@@ -278,7 +282,7 @@ export default function App() {
     const resetIdle = () => {
       setIsIdle(false);
       clearTimeout(timer);
-      timer = setTimeout(() => setIsIdle(true), 3500); // 3.5s idle threshold
+      timer = setTimeout(() => setIsIdle(true), 120000); // 120s idle threshold
     };
 
     window.addEventListener('mousemove', resetIdle);
@@ -286,7 +290,7 @@ export default function App() {
     window.addEventListener('mousedown', resetIdle);
     window.addEventListener('touchstart', resetIdle);
 
-    timer = setTimeout(() => setIsIdle(true), 3500);
+    timer = setTimeout(() => setIsIdle(true), 120000);
 
     return () => {
       clearTimeout(timer);
@@ -682,7 +686,7 @@ export default function App() {
               conflicts={conflicts}
               routes={routes}
               selectedRouteId={selectedRouteId}
-              onSelectRoute={(id) => setSelectedRouteId(id)}
+              onSelectRoute={handleSelectRoute}
               activeLayers={{
                 ...layers,
                 uncertainty: activeTab === 'uncertainty' || layers.uncertainty,
@@ -691,8 +695,6 @@ export default function App() {
             />
           </div>
         )}
-
-        {/* Legend */}
         <div className="map-legend">
           <div className="leg-item"><div className="leg-dot" style={{ background: '#10b981' }} /> Operational</div>
           <div className="leg-pipe" />

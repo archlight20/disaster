@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { RoadNode, RouteDetail, RouteSearchResponse, AIRouteInsight } from '@disaster/protocol';
+import { PRECOMPUTED_ROAD_EDGES } from './roadGeometryData';
 
 interface RouteFinderWindowProps {
   serverUrl: string;
@@ -41,6 +42,21 @@ const ASSAM_FALLBACK_NODES: RoadNode[] = [
   { id: 'node-assam-highway', name: 'NH-27 High Ground Bypass', lat: 26.1300, lng: 91.7000, type: 'WAYPOINT' },
 ];
 
+function concatEdgeCoords(...edgeIds: string[]): Array<{ lat: number; lng: number }> {
+  const result: Array<{ lat: number; lng: number }> = [];
+  for (const edgeId of edgeIds) {
+    const edge = PRECOMPUTED_ROAD_EDGES[edgeId];
+    if (edge && edge.coordinates) {
+      edge.coordinates.forEach((c, idx) => {
+        if (result.length === 0 || idx > 0) {
+          result.push(c);
+        }
+      });
+    }
+  }
+  return result;
+}
+
 function generateOfflineAreaRoutes(nodes: RoadNode[], areaLabel: string): RouteDetail[] {
   const g = nodes[0] || { lat: 26.1445, lng: 91.7362, id: 'node-assam-guwahati-entry' };
   const b = nodes[1] || { lat: 26.1850, lng: 91.7450, id: 'node-assam-brahmaputra' };
@@ -52,67 +68,84 @@ function generateOfflineAreaRoutes(nodes: RoadNode[], areaLabel: string): RouteD
     {
       routeId: 1,
       name: `${areaLabel} High-Ground Bypass Direct`,
-      distanceKm: 4.2,
-      estimatedTimeMin: 5.5,
+      distanceKm: 25.0,
+      estimatedTimeMin: 26.0,
       traffic: 'low',
       safety: 'safe',
-      routeLengthClassification: 'short',
+      routeLengthClassification: 'medium',
       color: '#10b981',
       pathNodeIds: [g.id, w.id, s.id],
-      coordinates: [{ lat: g.lat, lng: g.lng }, { lat: w.lat, lng: w.lng }, { lat: s.lat, lng: s.lng }],
-      segments: [{ edgeId: 'edge-assam-gw-hw', roadName: 'GS Road Express Bypass', penaltyMultiplier: 1 }],
+      coordinates: concatEdgeCoords('edge-assam-gw-hw', 'edge-assam-hw-sh'),
+      segments: [
+        { edgeId: 'edge-assam-gw-hw', roadName: 'GS Road Express Bypass', penaltyMultiplier: 1 },
+        { edgeId: 'edge-assam-hw-sh', roadName: 'High-Ground Outer Perimeter Highway', penaltyMultiplier: 1 },
+      ],
     },
     {
       routeId: 2,
       name: `${areaLabel} Medical Center Access Link`,
-      distanceKm: 4.8,
-      estimatedTimeMin: 6.2,
+      distanceKm: 10.6,
+      estimatedTimeMin: 14.5,
       traffic: 'moderate',
       safety: 'safe',
       routeLengthClassification: 'short',
       color: '#3b82f6',
       pathNodeIds: [g.id, h.id, s.id],
-      coordinates: [{ lat: g.lat, lng: g.lng }, { lat: h.lat, lng: h.lng }, { lat: s.lat, lng: s.lng }],
-      segments: [{ edgeId: 'edge-assam-gw-hs', roadName: 'Direct Emergency Transit Line', penaltyMultiplier: 1 }],
+      coordinates: concatEdgeCoords('edge-assam-gw-hs', 'edge-assam-hs-sh'),
+      segments: [
+        { edgeId: 'edge-assam-gw-hs', roadName: 'Direct Emergency Transit Line', penaltyMultiplier: 1 },
+        { edgeId: 'edge-assam-hs-sh', roadName: 'Dispur Medical Access Link', penaltyMultiplier: 1 },
+      ],
     },
     {
       routeId: 3,
       name: `${areaLabel} Riverfront Arterial Route`,
-      distanceKm: 5.1,
-      estimatedTimeMin: 7.8,
+      distanceKm: 11.4,
+      estimatedTimeMin: 16.2,
       traffic: 'heavy',
       safety: 'cautious',
-      routeLengthClassification: 'medium',
+      routeLengthClassification: 'short',
       color: '#f59e0b',
       pathNodeIds: [g.id, b.id, s.id],
-      coordinates: [{ lat: g.lat, lng: g.lng }, { lat: b.lat, lng: b.lng }, { lat: s.lat, lng: s.lng }],
-      segments: [{ edgeId: 'edge-assam-gw-bp', roadName: 'MG Road Riverfront Arterial', penaltyMultiplier: 1.5 }],
+      coordinates: concatEdgeCoords('edge-assam-gw-bp', 'edge-assam-bp-sh'),
+      segments: [
+        { edgeId: 'edge-assam-gw-bp', roadName: 'MG Road Riverfront Arterial', penaltyMultiplier: 1.5 },
+        { edgeId: 'edge-assam-bp-sh', roadName: 'North Embankment Relief Causeway', penaltyMultiplier: 1 },
+      ],
     },
     {
       routeId: 4,
       name: `${areaLabel} Zoo Road Radial Transit`,
-      distanceKm: 6.4,
-      estimatedTimeMin: 8.5,
+      distanceKm: 17.6,
+      estimatedTimeMin: 22.0,
       traffic: 'low',
       safety: 'safe',
       routeLengthClassification: 'medium',
       color: '#a855f7',
       pathNodeIds: [g.id, b.id, h.id, s.id],
-      coordinates: [{ lat: g.lat, lng: g.lng }, { lat: b.lat, lng: b.lng }, { lat: h.lat, lng: h.lng }, { lat: s.lat, lng: s.lng }],
-      segments: [{ edgeId: 'edge-assam-bp-hs', roadName: 'Zoo Road Elevated Arterial', penaltyMultiplier: 1 }],
+      coordinates: concatEdgeCoords('edge-assam-gw-bp', 'edge-assam-bp-hs', 'edge-assam-hs-sh'),
+      segments: [
+        { edgeId: 'edge-assam-gw-bp', roadName: 'MG Road Riverfront Arterial', penaltyMultiplier: 1 },
+        { edgeId: 'edge-assam-bp-hs', roadName: 'Zoo Road Elevated Arterial', penaltyMultiplier: 1 },
+        { edgeId: 'edge-assam-hs-sh', roadName: 'Dispur Medical Access Link', penaltyMultiplier: 1 },
+      ],
     },
     {
       routeId: 5,
       name: `${areaLabel} Outer Perimeter Highway Corridor`,
-      distanceKm: 7.8,
-      estimatedTimeMin: 9.8,
+      distanceKm: 30.1,
+      estimatedTimeMin: 32.5,
       traffic: 'low',
       safety: 'safe',
-      routeLengthClassification: 'medium',
+      routeLengthClassification: 'long',
       color: '#ef4444',
       pathNodeIds: [g.id, w.id, h.id, s.id],
-      coordinates: [{ lat: g.lat, lng: g.lng }, { lat: w.lat, lng: w.lng }, { lat: h.lat, lng: h.lng }, { lat: s.lat, lng: s.lng }],
-      segments: [{ edgeId: 'edge-assam-hw-hs', roadName: 'South Corridor Medical Expressway', penaltyMultiplier: 1 }],
+      coordinates: concatEdgeCoords('edge-assam-gw-hw', 'edge-assam-hw-hs', 'edge-assam-hs-sh'),
+      segments: [
+        { edgeId: 'edge-assam-gw-hw', roadName: 'GS Road Express Bypass', penaltyMultiplier: 1 },
+        { edgeId: 'edge-assam-hw-hs', roadName: 'South Corridor Medical Expressway', penaltyMultiplier: 1 },
+        { edgeId: 'edge-assam-hs-sh', roadName: 'Dispur Medical Access Link', penaltyMultiplier: 1 },
+      ],
     },
   ];
 }
@@ -122,19 +155,14 @@ function generateOfflineDelhiRoutes(): RouteDetail[] {
     {
       routeId: 1,
       name: 'Route 1 via Netaji Subhash Marg Direct',
-      distanceKm: 3.4,
-      estimatedTimeMin: 4.1,
+      distanceKm: 7.6,
+      estimatedTimeMin: 9.8,
       traffic: 'low',
       safety: 'safe',
       routeLengthClassification: 'short',
       color: '#ef4444',
       pathNodeIds: ['node-delhi-cp', 'node-delhi-ito', 'node-delhi-red-fort'],
-      coordinates: [
-        { lat: 28.6315, lng: 77.2167 },
-        { lat: 28.6280, lng: 77.2400 },
-        { lat: 28.6420, lng: 77.2405 },
-        { lat: 28.6562, lng: 77.2410 },
-      ],
+      coordinates: concatEdgeCoords('edge-delhi-cp-ito', 'edge-delhi-ito-redfort'),
       segments: [
         { edgeId: 'edge-delhi-cp-ito', roadName: 'Barakhamba Emergency Arterial', penaltyMultiplier: 1 },
         { edgeId: 'edge-delhi-ito-redfort', roadName: 'Netaji Subhash Marg', penaltyMultiplier: 1 },
@@ -143,20 +171,14 @@ function generateOfflineDelhiRoutes(): RouteDetail[] {
     {
       routeId: 2,
       name: 'Route 2 via Janpath & India Gate Hexagon',
-      distanceKm: 4.1,
-      estimatedTimeMin: 4.8,
+      distanceKm: 17.3,
+      estimatedTimeMin: 21.0,
       traffic: 'low',
       safety: 'safe',
       routeLengthClassification: 'medium',
       color: '#10b981',
       pathNodeIds: ['node-delhi-cp', 'node-delhi-india-gate', 'node-delhi-ring-road', 'node-delhi-ito', 'node-delhi-red-fort'],
-      coordinates: [
-        { lat: 28.6315, lng: 77.2167 },
-        { lat: 28.6129, lng: 77.2295 },
-        { lat: 28.6050, lng: 77.2100 },
-        { lat: 28.6280, lng: 77.2400 },
-        { lat: 28.6562, lng: 77.2410 },
-      ],
+      coordinates: concatEdgeCoords('edge-delhi-cp-ig', 'edge-delhi-ig-ring', 'edge-delhi-ring-ito', 'edge-delhi-ito-redfort'),
       segments: [
         { edgeId: 'edge-delhi-cp-ig', roadName: 'Janpath Radial Expressway', penaltyMultiplier: 1 },
         { edgeId: 'edge-delhi-ig-ring', roadName: 'Shershah Road Link', penaltyMultiplier: 1 },
@@ -167,19 +189,14 @@ function generateOfflineDelhiRoutes(): RouteDetail[] {
     {
       routeId: 3,
       name: 'Route 3 via Old Yamuna Bridge (Loha Pul)',
-      distanceKm: 4.5,
-      estimatedTimeMin: 6.2,
+      distanceKm: 12.0,
+      estimatedTimeMin: 18.5,
       traffic: 'heavy',
       safety: 'dangerous',
       routeLengthClassification: 'medium',
       color: '#f59e0b',
       pathNodeIds: ['node-delhi-cp', 'node-delhi-ito', 'node-delhi-loha-pul', 'node-delhi-red-fort'],
-      coordinates: [
-        { lat: 28.6315, lng: 77.2167 },
-        { lat: 28.6280, lng: 77.2400 },
-        { lat: 28.6200, lng: 77.2350 },
-        { lat: 28.6562, lng: 77.2410 },
-      ],
+      coordinates: concatEdgeCoords('edge-delhi-cp-ito', 'edge-delhi-ito-lohapul', 'edge-delhi-lohapul-redfort'),
       segments: [
         { edgeId: 'edge-delhi-cp-ito', roadName: 'Barakhamba Emergency Arterial', penaltyMultiplier: 1 },
         { edgeId: 'edge-delhi-ito-lohapul', roadName: 'Vikas Marg River Approach', entityId: 'bridge-delhi-01', entityState: 'DAMAGED', penaltyMultiplier: 3.5 },
@@ -189,18 +206,14 @@ function generateOfflineDelhiRoutes(): RouteDetail[] {
     {
       routeId: 4,
       name: 'Route 4 via Central Express & Kashmere Gate',
-      distanceKm: 4.8,
-      estimatedTimeMin: 5.2,
+      distanceKm: 8.4,
+      estimatedTimeMin: 10.5,
       traffic: 'low',
       safety: 'safe',
-      routeLengthClassification: 'medium',
+      routeLengthClassification: 'short',
       color: '#3b82f6',
       pathNodeIds: ['node-delhi-cp', 'node-delhi-kashmere-gate', 'node-delhi-red-fort'],
-      coordinates: [
-        { lat: 28.6315, lng: 77.2167 },
-        { lat: 28.6665, lng: 77.2285 },
-        { lat: 28.6562, lng: 77.2410 },
-      ],
+      coordinates: concatEdgeCoords('edge-delhi-cp-kg', 'edge-delhi-redfort-kg'),
       segments: [
         { edgeId: 'edge-delhi-cp-kg', roadName: 'Central Express Boulevard', penaltyMultiplier: 1 },
         { edgeId: 'edge-delhi-redfort-kg', roadName: 'Old Delhi Northern Highway', penaltyMultiplier: 1 },
@@ -209,23 +222,18 @@ function generateOfflineDelhiRoutes(): RouteDetail[] {
     {
       routeId: 5,
       name: 'Route 5 via AIIMS Trauma Link & Outer Ring Road',
-      distanceKm: 7.2,
-      estimatedTimeMin: 7.8,
+      distanceKm: 13.3,
+      estimatedTimeMin: 19.2,
       traffic: 'moderate',
       safety: 'cautious',
       routeLengthClassification: 'long',
       color: '#a855f7',
-      pathNodeIds: ['node-delhi-cp', 'node-delhi-ring-road', 'node-delhi-aiims', 'node-delhi-red-fort'],
-      coordinates: [
-        { lat: 28.6315, lng: 77.2167 },
-        { lat: 28.6050, lng: 77.2100 },
-        { lat: 28.5672, lng: 77.2100 },
-        { lat: 28.6562, lng: 77.2410 },
-      ],
+      pathNodeIds: ['node-delhi-cp', 'node-delhi-india-gate', 'node-delhi-ring-road', 'node-delhi-aiims'],
+      coordinates: concatEdgeCoords('edge-delhi-cp-ig', 'edge-delhi-ig-ring', 'edge-delhi-ring-aiims'),
       segments: [
+        { edgeId: 'edge-delhi-cp-ig', roadName: 'Janpath Radial Expressway', penaltyMultiplier: 1 },
         { edgeId: 'edge-delhi-ig-ring', roadName: 'Shershah Road Link', penaltyMultiplier: 1 },
         { edgeId: 'edge-delhi-ring-aiims', roadName: 'South Delhi Medical Corridor', penaltyMultiplier: 1 },
-        { edgeId: 'edge-delhi-ito-redfort', roadName: 'Netaji Subhash Marg', penaltyMultiplier: 1 },
       ],
     },
   ];
@@ -236,131 +244,89 @@ function generateOfflineSector4Routes(): RouteDetail[] {
     {
       routeId: 1,
       name: 'Route 1 via Southern Sector Ring Road',
-      distanceKm: 3.3,
-      estimatedTimeMin: 3.8,
+      distanceKm: 6.4,
+      estimatedTimeMin: 8.5,
       traffic: 'low',
       safety: 'safe',
       routeLengthClassification: 'short',
       color: '#ef4444',
       pathNodeIds: ['node-south-entry', 'node-east-express', 'node-hospital-main', 'node-shelter-alpha'],
-      coordinates: [
-        { lat: 12.96, lng: 77.59 },
-        { lat: 12.962, lng: 77.598 },
-        { lat: 12.968, lng: 77.605 },
-        { lat: 12.971, lng: 77.6035 },
-        { lat: 12.975, lng: 77.602 },
-        { lat: 12.977, lng: 77.6 },
-        { lat: 12.9785, lng: 77.598 }
-      ],
+      coordinates: concatEdgeCoords('edge-south-east', 'edge-east-hospital', 'edge-hospital-shelter'),
       segments: [
         { edgeId: 'edge-south-east', roadName: 'Southern Sector Ring Road', penaltyMultiplier: 1 },
         { edgeId: 'edge-east-hospital', roadName: 'East Emergency Access', penaltyMultiplier: 1 },
-        { edgeId: 'edge-hospital-shelter', roadName: 'Hospital Link Corridor', penaltyMultiplier: 1 }
-      ]
+        { edgeId: 'edge-hospital-shelter', roadName: 'Hospital Link Corridor', penaltyMultiplier: 1 },
+      ],
     },
     {
       routeId: 2,
       name: 'Route 2 via West Perimeter Bypass',
-      distanceKm: 3.4,
-      estimatedTimeMin: 4.3,
+      distanceKm: 11.0,
+      estimatedTimeMin: 14.2,
       traffic: 'low',
       safety: 'safe',
-      routeLengthClassification: 'short',
+      routeLengthClassification: 'medium',
       color: '#10b981',
       pathNodeIds: ['node-south-entry', 'node-west-ring', 'node-north-basin', 'node-shelter-alpha'],
-      coordinates: [
-        { lat: 12.96, lng: 77.59 },
-        { lat: 12.966, lng: 77.587 },
-        { lat: 12.972, lng: 77.586 },
-        { lat: 12.976, lng: 77.588 },
-        { lat: 12.981, lng: 77.591 },
-        { lat: 12.98, lng: 77.5945 },
-        { lat: 12.9785, lng: 77.598 }
-      ],
+      coordinates: concatEdgeCoords('edge-south-west', 'edge-west-north', 'edge-north-shelter'),
       segments: [
         { edgeId: 'edge-south-west', roadName: 'West Perimeter Bypass', penaltyMultiplier: 1 },
         { edgeId: 'edge-west-north', roadName: 'Riverbank Causeway', penaltyMultiplier: 1 },
-        { edgeId: 'edge-north-shelter', roadName: 'North Shelter Avenue', penaltyMultiplier: 1 }
-      ]
+        { edgeId: 'edge-north-shelter', roadName: 'North Shelter Avenue', penaltyMultiplier: 1 },
+      ],
     },
     {
       routeId: 3,
       name: 'Route 3 via Bridge B12 Approach',
-      distanceKm: 3.1,
-      estimatedTimeMin: 4.4,
+      distanceKm: 6.1,
+      estimatedTimeMin: 9.0,
       traffic: 'moderate',
       safety: 'cautious',
       routeLengthClassification: 'short',
       color: '#f59e0b',
       pathNodeIds: ['node-south-entry', 'node-west-ring', 'node-bridge-b12', 'node-shelter-alpha'],
-      coordinates: [
-        { lat: 12.96, lng: 77.59 },
-        { lat: 12.966, lng: 77.587 },
-        { lat: 12.972, lng: 77.586 },
-        { lat: 12.9718, lng: 77.59 },
-        { lat: 12.9716, lng: 77.5946 },
-        { lat: 12.975, lng: 77.596 },
-        { lat: 12.9785, lng: 77.598 }
-      ],
+      coordinates: concatEdgeCoords('edge-south-west', 'edge-b12-west', 'edge-bridge-b12'),
       segments: [
         { edgeId: 'edge-south-west', roadName: 'West Perimeter Bypass', penaltyMultiplier: 1 },
         { edgeId: 'edge-b12-west', roadName: 'Cross-Town Link', penaltyMultiplier: 1 },
-        { edgeId: 'edge-bridge-b12', roadName: 'Bridge B12 Main Span', entityId: 'road-b12', entityState: 'OPEN', penaltyMultiplier: 1.25 }
-      ]
+        { edgeId: 'edge-bridge-b12', roadName: 'Bridge B12 Main Span', entityId: 'road-b12', entityState: 'OPEN', penaltyMultiplier: 1.25 },
+      ],
     },
     {
       routeId: 4,
       name: 'Route 4 via Outer Perimeter Expressway',
-      distanceKm: 4.4,
-      estimatedTimeMin: 4.5,
+      distanceKm: 8.6,
+      estimatedTimeMin: 11.2,
       traffic: 'low',
       safety: 'safe',
       routeLengthClassification: 'long',
       color: '#3b82f6',
       pathNodeIds: ['node-south-entry', 'node-east-express', 'node-northeast-gate', 'node-shelter-alpha'],
-      coordinates: [
-        { lat: 12.96, lng: 77.59 },
-        { lat: 12.962, lng: 77.598 },
-        { lat: 12.968, lng: 77.605 },
-        { lat: 12.976, lng: 77.606 },
-        { lat: 12.983, lng: 77.605 },
-        { lat: 12.981, lng: 77.601 },
-        { lat: 12.9785, lng: 77.598 }
-      ],
+      coordinates: concatEdgeCoords('edge-south-east', 'edge-east-northeast', 'edge-northeast-shelter'),
       segments: [
         { edgeId: 'edge-south-east', roadName: 'Southern Sector Ring Road', penaltyMultiplier: 1 },
         { edgeId: 'edge-east-northeast', roadName: 'Outer Perimeter Expressway', penaltyMultiplier: 1 },
-        { edgeId: 'edge-northeast-shelter', roadName: 'Northeast Access Corridor', penaltyMultiplier: 1 }
-      ]
+        { edgeId: 'edge-northeast-shelter', roadName: 'Northeast Access Corridor', penaltyMultiplier: 1 },
+      ],
     },
     {
       routeId: 5,
       name: 'Route 5 via Civic Hospital Expressway',
-      distanceKm: 3.7,
-      estimatedTimeMin: 4.7,
+      distanceKm: 8.6,
+      estimatedTimeMin: 11.5,
       traffic: 'low',
       safety: 'safe',
       routeLengthClassification: 'medium',
       color: '#a855f7',
       pathNodeIds: ['node-south-entry', 'node-west-ring', 'node-bridge-b12', 'node-hospital-main', 'node-shelter-alpha'],
-      coordinates: [
-        { lat: 12.96, lng: 77.59 },
-        { lat: 12.966, lng: 77.587 },
-        { lat: 12.972, lng: 77.586 },
-        { lat: 12.9718, lng: 77.59 },
-        { lat: 12.9716, lng: 77.5946 },
-        { lat: 12.973, lng: 77.598 },
-        { lat: 12.975, lng: 77.602 },
-        { lat: 12.977, lng: 77.6 },
-        { lat: 12.9785, lng: 77.598 }
-      ],
+      coordinates: concatEdgeCoords('edge-south-west', 'edge-b12-west', 'edge-b12-hospital', 'edge-hospital-shelter'),
       segments: [
         { edgeId: 'edge-south-west', roadName: 'West Perimeter Bypass', penaltyMultiplier: 1 },
         { edgeId: 'edge-b12-west', roadName: 'Cross-Town Link', penaltyMultiplier: 1 },
         { edgeId: 'edge-b12-hospital', roadName: 'Civic Hospital Expressway', penaltyMultiplier: 1 },
-        { edgeId: 'edge-hospital-shelter', roadName: 'Hospital Link Corridor', penaltyMultiplier: 1 }
-      ]
-    }
+        { edgeId: 'edge-hospital-shelter', roadName: 'Hospital Link Corridor', penaltyMultiplier: 1 },
+      ],
+    },
   ];
 }
 

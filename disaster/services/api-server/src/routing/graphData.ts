@@ -1,4 +1,5 @@
 import { RoadNode, RoadEdge } from '../server';
+import { PRECOMPUTED_ROAD_EDGES } from './roadGeometryData';
 
 export const SECTOR_4_NODES: RoadNode[] = [
   { id: 'node-south-entry', name: 'South Gate (Main Entry)', lat: 12.9600, lng: 77.5900, type: 'CHECKPOINT' },
@@ -582,13 +583,27 @@ export const ASSAM_FLOOD_EDGES: RoadEdge[] = [
   },
 ];
 
+export function attachRoadGeometry(edges: RoadEdge[]): RoadEdge[] {
+  return edges.map(edge => {
+    const pre = PRECOMPUTED_ROAD_EDGES[edge.id];
+    if (pre && pre.coordinates && pre.coordinates.length > 0) {
+      return {
+        ...edge,
+        distanceKm: pre.distanceKm || edge.distanceKm,
+        coordinates: pre.coordinates,
+      };
+    }
+    return edge;
+  });
+}
+
 export function getGraphForArea(areaId?: string): { nodes: RoadNode[]; edges: RoadEdge[] } {
   if (areaId === 'delhi-demo') {
-    return { nodes: DELHI_NCR_NODES, edges: DELHI_NCR_EDGES };
+    return { nodes: DELHI_NCR_NODES, edges: attachRoadGeometry(DELHI_NCR_EDGES) };
   }
   if (areaId === 'assam-demo' || areaId === 'assam') {
-    return { nodes: ASSAM_FLOOD_NODES, edges: ASSAM_FLOOD_EDGES };
+    return { nodes: ASSAM_FLOOD_NODES, edges: attachRoadGeometry(ASSAM_FLOOD_EDGES) };
   }
-  return { nodes: SECTOR_4_NODES, edges: SECTOR_4_EDGES };
+  return { nodes: SECTOR_4_NODES, edges: attachRoadGeometry(SECTOR_4_EDGES) };
 }
 

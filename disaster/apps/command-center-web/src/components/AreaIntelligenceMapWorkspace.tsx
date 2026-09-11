@@ -44,6 +44,10 @@ export default function AreaIntelligenceMapWorkspace({
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInst = useRef<L.Map | null>(null);
   const layers = useRef<Record<string, L.LayerGroup>>({});
+  const lastFittedRouteKey = useRef<string | null>(null);
+  const lastAreaIdRef = useRef<string | null>(null);
+  const onSelectRouteRef = useRef(onSelectRoute);
+  useEffect(() => { onSelectRouteRef.current = onSelectRoute; }, [onSelectRoute]);
 
   // Initialize map
   useEffect(() => {
@@ -72,11 +76,16 @@ export default function AreaIntelligenceMapWorkspace({
     return () => { map.remove(); mapInst.current = null; };
   }, []);
 
-  // Fly to area on change
+  // Fly to area on change (only when area ID actually changes)
   useEffect(() => {
     if (!mapInst.current || !areaData) return;
+    if (areaData.area.id === lastAreaIdRef.current) return;
+    lastAreaIdRef.current = areaData.area.id;
+    lastFittedRouteKey.current = null; // Reset fitted route key on area switch
+
     const { center, boundary_polygon } = areaData.area;
-    mapInst.current.flyTo([center.lat, center.lng], 14, { duration: 1.4, easeLinearity: 0.2 });
+    const targetZoom = areaData.area.id === 'assam-demo' ? 8 : 14;
+    mapInst.current.flyTo([center.lat, center.lng], targetZoom, { duration: 1.4, easeLinearity: 0.2 });
 
     layers.current.boundary.clearLayers();
     if (boundary_polygon?.length) {
@@ -187,7 +196,7 @@ export default function AreaIntelligenceMapWorkspace({
       polyline.bindTooltip(tooltipContent, { className: 'eoc-tooltip', sticky: true });
 
       polyline.on('click', () => {
-        if (onSelectRoute) onSelectRoute(r.routeId);
+        if (onSelectRouteRef.current) onSelectRouteRef.current(r.routeId);
       });
 
       polyline.addTo(layers.current.routes);
@@ -220,7 +229,19 @@ export default function AreaIntelligenceMapWorkspace({
           .addTo(layers.current.routes);
       }
     });
-  }, [routes, selectedRouteId, onSelectRoute]);
+
+    // Automatically fit map view to the active route ONLY ONCE when route selection/calculation changes
+    const activeRoute = routes.find(r => r.routeId === selectedRouteId) || routes[0];
+    const routeKey = activeRoute ? `${activeRoute.routeId}_${activeRoute.distanceKm}_${activeRoute.coordinates?.length}` : null;
+
+    if (routeKey && routeKey !== lastFittedRouteKey.current) {
+      lastFittedRouteKey.current = routeKey;
+      if (activeRoute && activeRoute.coordinates && activeRoute.coordinates.length > 1 && mapInst.current) {
+        const bounds = L.latLngBounds(activeRoute.coordinates.map(c => [c.lat, c.lng] as [number, number]));
+        mapInst.current.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
+      }
+    }
+  }, [routes, selectedRouteId]);
 
   // Entity + incident + unit markers
   useEffect(() => {
@@ -313,9 +334,139 @@ export default function AreaIntelligenceMapWorkspace({
     return () => observer.disconnect();
   }, []);
 
+  const handleZoomIn = () => {
+    mapInst.current?.zoomIn();
+  };
+
+  const handleZoomOut = () => {
+    mapInst.current?.zoomOut();
+  };
+
+  const handleFitRoute = () => {
+    const activeRoute = routes?.find(r => r.routeId === selectedRouteId) || routes?.[0];
+    if (activeRoute && activeRoute.coordinates && activeRoute.coordinates.length > 1 && mapInst.current) {
+      const bounds = L.latLngBounds(activeRoute.coordinates.map(c => [c.lat, c.lng] as [number, number]));
+      mapInst.current.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
+    }
+  };
+
+  const handleFitArea = () => {
+    if (!mapInst.current || !areaData) return;
+    const { center } = areaData.area;
+    const targetZoom = areaData.area.id === 'assam-demo' ? 8 : 14;
+    mapInst.current.flyTo([center.lat, center.lng], targetZoom, { duration: 1.0 });
+  };
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* Floating Tactical Zoom & Framing Controls */}
+      <div style={{
+        position: 'absolute',
+        top: 16,
+        right: 16,
+        zIndex: 1000,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 5,
+        background: 'rgba(6, 14, 28, 0.88)',
+        backdropFilter: 'blur(8px)',
+        border: '1px solid rgba(0, 229, 255, 0.3)',
+        borderRadius: 6,
+        padding: 5,
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6)',
+      }}>
+        <button
+          type="button"
+          onClick={handleZoomIn}
+          title="Zoom In"
+          style={{
+            background: '#091a32',
+            border: '1px solid rgba(0, 229, 255, 0.3)',
+            color: '#00e5ff',
+            width: 30,
+            height: 30,
+            borderRadius: 4,
+            cursor: 'pointer',
+            fontSize: 16,
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.15s ease',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = '#0e2b52')}
+          onMouseLeave={e => (e.currentTarget.style.background = '#091a32')}
+        >+</button>
+        <button
+          type="button"
+          onClick={handleZoomOut}
+          title="Zoom Out"
+          style={{
+            background: '#091a32',
+            border: '1px solid rgba(0, 229, 255, 0.3)',
+            color: '#00e5ff',
+            width: 30,
+            height: 30,
+            borderRadius: 4,
+            cursor: 'pointer',
+            fontSize: 16,
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.15s ease',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = '#0e2b52')}
+          onMouseLeave={e => (e.currentTarget.style.background = '#091a32')}
+        >−</button>
+        {routes && routes.length > 0 && (
+          <button
+            type="button"
+            onClick={handleFitRoute}
+            title="Focus / Frame Active Route"
+            style={{
+              background: '#091a32',
+              border: '1px solid rgba(16, 185, 129, 0.4)',
+              color: '#10b981',
+              width: 30,
+              height: 30,
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontSize: 14,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.15s ease',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#0d3829')}
+            onMouseLeave={e => (e.currentTarget.style.background = '#091a32')}
+          >🎯</button>
+        )}
+        <button
+          type="button"
+          onClick={handleFitArea}
+          title="Reset to Area View"
+          style={{
+            background: '#091a32',
+            border: '1px solid rgba(56, 189, 248, 0.4)',
+            color: '#38bdf8',
+            width: 30,
+            height: 30,
+            borderRadius: 4,
+            cursor: 'pointer',
+            fontSize: 13,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.15s ease',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = '#0c3254')}
+          onMouseLeave={e => (e.currentTarget.style.background = '#091a32')}
+        >🗺</button>
+      </div>
+
       <style>{`
         .eoc-tooltip {
           background: rgba(6,14,28,0.95) !important;
